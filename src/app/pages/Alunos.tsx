@@ -14,6 +14,25 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { Search, Plus } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "../components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import { ScrollArea } from "../components/ui/scroll-area";
 
 interface Student {
   id: string;
@@ -36,6 +55,8 @@ interface Student {
   mod2Participacao: string;
   mod2Nota: number;
   mod2Media: number;
+  treinamentoAtual: string;
+  treinamentosConcluidos: string[];
 }
 
 export function Alunos() {
@@ -63,6 +84,8 @@ export function Alunos() {
       mod2Participacao: "Alta",
       mod2Nota: 9.0,
       mod2Media: 9.25,
+      treinamentoAtual: "Gestão de Estoque",
+      treinamentosConcluidos: ["Eu Sou Financeiro", "Liderança Básica"],
     },
     {
       id: "2",
@@ -83,6 +106,8 @@ export function Alunos() {
       mod2Participacao: "Média",
       mod2Nota: 8.5,
       mod2Media: 8.25,
+      treinamentoAtual: "Eu Sou Financeiro",
+      treinamentosConcluidos: ["Liderança Básica"],
     },
     {
       id: "3",
@@ -103,6 +128,8 @@ export function Alunos() {
       mod2Participacao: "Alta",
       mod2Nota: 9.5,
       mod2Media: 9.65,
+      treinamentoAtual: "Atendimento ao Cliente",
+      treinamentosConcluidos: ["Eu Sou Financeiro", "Gestão de Estoque"],
     },
     {
       id: "4",
@@ -123,6 +150,8 @@ export function Alunos() {
       mod2Participacao: "Média",
       mod2Nota: 7.0,
       mod2Media: 6.75,
+      treinamentoAtual: "Nenhum",
+      treinamentosConcluidos: [],
     },
     {
       id: "5",
@@ -143,6 +172,8 @@ export function Alunos() {
       mod2Participacao: "Alta",
       mod2Nota: 9.8,
       mod2Media: 9.9,
+      treinamentoAtual: "Gestão de Estoque",
+      treinamentosConcluidos: ["Eu Sou Financeiro", "Liderança Básica", "Gestão Avançada"],
     },
     {
       id: "6",
@@ -163,6 +194,8 @@ export function Alunos() {
       mod2Participacao: "Alta",
       mod2Nota: 9.0,
       mod2Media: 8.75,
+      treinamentoAtual: "Eu Sou Financeiro",
+      treinamentosConcluidos: ["Gestão de Estoque"],
     },
     {
       id: "7",
@@ -183,6 +216,8 @@ export function Alunos() {
       mod2Participacao: "Média",
       mod2Nota: 8.0,
       mod2Media: 7.75,
+      treinamentoAtual: "Atendimento ao Cliente",
+      treinamentosConcluidos: [],
     },
     {
       id: "8",
@@ -203,6 +238,8 @@ export function Alunos() {
       mod2Participacao: "Alta",
       mod2Nota: 9.2,
       mod2Media: 9.1,
+      treinamentoAtual: "Eu Sou Financeiro",
+      treinamentosConcluidos: ["Atendimento ao Cliente", "Técnicas de Vendas"],
     },
   ];
 
@@ -211,8 +248,50 @@ export function Alunos() {
       student.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.cpf.includes(searchTerm) ||
       student.empresa.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.email.toLowerCase().includes(searchTerm.toLowerCase())
+      student.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      student.treinamentoAtual.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // States for UX logic and Modals
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [isEditingStudent, setIsEditingStudent] = useState(false);
+  const [isStudentDirty, setIsStudentDirty] = useState(false);
+  const [discardStudentConfirmOpen, setDiscardStudentConfirmOpen] = useState(false);
+  const [saveStudentConfirmOpen, setSaveStudentConfirmOpen] = useState(false);
+
+  const handleRowClick = (student: Student) => {
+    setSelectedStudent(student);
+    setDetailModalOpen(true);
+    setIsEditingStudent(false);
+    setIsStudentDirty(false);
+  };
+
+  const handleCancelEdit = () => {
+    if (isStudentDirty) {
+      setDiscardStudentConfirmOpen(true);
+    } else {
+      setIsEditingStudent(false);
+    }
+  };
+
+  const confirmDiscardEdit = () => {
+    setDiscardStudentConfirmOpen(false);
+    setIsEditingStudent(false);
+    setIsStudentDirty(false);
+  };
+
+  const handleSaveStudent = () => {
+    setSaveStudentConfirmOpen(true);
+  };
+
+  const confirmSaveStudent = () => {
+    // Adicionar lógica real de salvamento aqui
+    setSaveStudentConfirmOpen(false);
+    setIsEditingStudent(false);
+    setIsStudentDirty(false);
+  };
+
 
   return (
     <div className="space-y-6">
@@ -233,7 +312,7 @@ export function Alunos() {
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nome, CPF, empresa ou e-mail..."
+              placeholder="Buscar por nome, CPF, empresa, treinamento atual..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-11 h-12 text-base"
@@ -266,6 +345,7 @@ export function Alunos() {
                   <TableHead>CPF</TableHead>
                   <TableHead>Empresa</TableHead>
                   <TableHead>Telefone</TableHead>
+                  <TableHead>Treinamento Atual</TableHead>
                   <TableHead>E-mail</TableHead>
                   <TableHead>Data de nascimento</TableHead>
                   <TableHead>Cargo</TableHead>
@@ -274,13 +354,22 @@ export function Alunos() {
               </TableHeader>
               <TableBody>
                 {filteredStudents.map((student) => (
-                  <TableRow key={student.id}>
+                  <TableRow 
+                    key={student.id} 
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => handleRowClick(student)}
+                  >
                     <TableCell className="font-medium">{student.nome}</TableCell>
                     <TableCell className="text-muted-foreground">{student.cpf}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{student.empresa}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{student.telefone}</TableCell>
+                    <TableCell>
+                      <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 pointer-events-none">
+                        {student.treinamentoAtual}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{student.email}</TableCell>
                     <TableCell className="text-muted-foreground">{student.dataNascimento}</TableCell>
                     <TableCell className="text-muted-foreground">{student.cargo}</TableCell>
@@ -430,6 +519,165 @@ export function Alunos() {
           )}
         </Card>
       )}
+
+      {/* Detail Modal */}
+      {selectedStudent && (
+        <Dialog open={detailModalOpen} onOpenChange={(open) => {
+          if (!open) {
+            if (isStudentDirty) setDiscardStudentConfirmOpen(true);
+            else setDetailModalOpen(false);
+          }
+        }}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
+            <DialogHeader>
+              <DialogTitle>Detalhes do Aluno</DialogTitle>
+              <DialogDescription>
+                Visualize ou edite as informações gerenciais e histórico de {selectedStudent.nome}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6 py-4">
+              {/* Infos Básicas */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">Nome</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.nome} onChange={() => setIsStudentDirty(true)} />
+                  ) : (
+                    <p className="font-medium">{selectedStudent.nome}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">CPF</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.cpf} onChange={() => setIsStudentDirty(true)} />
+                  ) : (
+                    <p className="font-medium">{selectedStudent.cpf}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">Empresa</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.empresa} onChange={() => setIsStudentDirty(true)} />
+                  ) : (
+                    <Badge variant="outline">{selectedStudent.empresa}</Badge>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">Telefone</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.telefone} onChange={() => setIsStudentDirty(true)} />
+                  ) : (
+                    <p className="font-medium">{selectedStudent.telefone}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">E-mail</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.email} onChange={() => setIsStudentDirty(true)} type="email"/>
+                  ) : (
+                    <p className="font-medium">{selectedStudent.email}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-muted-foreground text-xs uppercase">Cargo</Label>
+                  {isEditingStudent ? (
+                    <Input defaultValue={selectedStudent.cargo} onChange={() => setIsStudentDirty(true)} />
+                  ) : (
+                    <p className="font-medium">{selectedStudent.cargo}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Status Educacional */}
+              <div className="border-t pt-4 space-y-4">
+                <h3 className="font-semibold text-lg">Histórico Escolar</h3>
+                
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground text-xs uppercase">Treinamento Atual</Label>
+                  <div>
+                    <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-none transition-colors px-3 py-1">
+                      {selectedStudent.treinamentoAtual}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground text-xs uppercase">Treinamentos Concluídos</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedStudent.treinamentosConcluidos.length > 0 ? (
+                      selectedStudent.treinamentosConcluidos.map((t, index) => (
+                        <Badge key={index} variant="secondary" className="px-3 py-1 bg-green-50 text-green-700 border-green-200 hover:bg-green-100 transition-colors">
+                          {t}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Nenhum treinamento concluído.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom Footer com Esquerda/Direita separate */}
+            <div className="flex w-full items-center justify-between border-t border-border pt-4 mt-2">
+              <div>
+                <Button variant="destructive">Excluir</Button>
+              </div>
+              
+              <div className="flex gap-2">
+                {isEditingStudent ? (
+                  <>
+                    <Button variant="outline" onClick={handleCancelEdit}>Cancelar</Button>
+                    <Button onClick={handleSaveStudent}>Salvar Alterações</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => setDetailModalOpen(false)}>Fechar</Button>
+                    <Button onClick={() => setIsEditingStudent(true)}>Editar</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Discard Confirmation Dialog */}
+      <AlertDialog open={discardStudentConfirmOpen} onOpenChange={setDiscardStudentConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Os dados modificados serão perdidos caso não sejam salvos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDiscardEdit} className="bg-destructive hover:bg-destructive/90">
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save Confirmation Dialog */}
+      <AlertDialog open={saveStudentConfirmOpen} onOpenChange={setSaveStudentConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revisar Dados</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja realmente aplicar e salvar estas edições no perfil de {selectedStudent?.nome}?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveStudent}>
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

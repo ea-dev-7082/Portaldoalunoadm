@@ -51,7 +51,25 @@ import {
   Video,
   Calendar,
   Clock,
+  Users,
+  Building2,
+  Building,
+  UserMinus,
+  X,
 } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../components/ui/accordion";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../components/ui/tabs";
+import { ScrollArea } from "../components/ui/scroll-area";
 
 import React from "react";
 
@@ -63,6 +81,11 @@ interface Training {
   status: string;
   participants: number;
   modulo: string;
+  stats: {
+    empresas: number;
+    gruposEconomicos: number;
+    alunosSemEmpresa: number;
+  };
 }
 
 interface Material {
@@ -89,6 +112,18 @@ export function Treinamentos() {
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
 
+  // New Training States
+  const [addTrainingOpen, setAddTrainingOpen] = useState(false);
+  const [isTrainingDirty, setIsTrainingDirty] = useState(false);
+  const [discardTrainingOpen, setDiscardTrainingOpen] = useState(false);
+  const [saveTrainingConfirmOpen, setSaveTrainingConfirmOpen] = useState(false);
+  const [trainingData, setTrainingData] = useState({ name: "", description: "" });
+  const [trainingModules, setTrainingModules] = useState([{ id: "1", name: "Módulo 1", description: "" }]);
+  const [activeTab, setActiveTab] = useState("1");
+  
+  // Stats Modal State
+  const [statsModalOpen, setStatsModalOpen] = useState<{type: string, title: string, count: number, trainingId: string} | null>(null);
+
   // Mock data for trainings
   const trainings: Training[] = [
     {
@@ -99,6 +134,7 @@ export function Treinamentos() {
       status: "Em andamento",
       participants: 45,
       modulo: "Módulo 1",
+      stats: { empresas: 12, gruposEconomicos: 3, alunosSemEmpresa: 5 },
     },
     {
       id: "2",
@@ -108,6 +144,7 @@ export function Treinamentos() {
       status: "Agendado",
       participants: 32,
       modulo: "Módulo 2",
+      stats: { empresas: 8, gruposEconomicos: 2, alunosSemEmpresa: 2 },
     },
     {
       id: "3",
@@ -117,6 +154,7 @@ export function Treinamentos() {
       status: "Agendado",
       participants: 28,
       modulo: "Módulo 1",
+      stats: { empresas: 10, gruposEconomicos: 4, alunosSemEmpresa: 0 },
     },
   ];
 
@@ -206,6 +244,55 @@ export function Treinamentos() {
     setSaveConfirmOpen(false);
   };
 
+  const handleAddModule = () => {
+    const newId = String(trainingModules.length + 1);
+    setTrainingModules([...trainingModules, { id: newId, name: `Módulo ${newId}`, description: "" }]);
+    setActiveTab(newId);
+    setIsTrainingDirty(true);
+  };
+  
+  const handleRemoveModule = (id: string) => {
+    if (trainingModules.length <= 1) return;
+    const filtered = trainingModules.filter(m => m.id !== id);
+    setTrainingModules(filtered);
+    if (activeTab === id) {
+      setActiveTab(filtered[0].id);
+    }
+    setIsTrainingDirty(true);
+  };
+
+  const handleCancelTraining = () => {
+    if (isTrainingDirty) {
+      setDiscardTrainingOpen(true);
+    } else {
+      setAddTrainingOpen(false);
+      resetTrainingForm();
+    }
+  };
+
+  const resetTrainingForm = () => {
+    setTrainingData({ name: "", description: "" });
+    setTrainingModules([{ id: "1", name: "Módulo 1", description: "" }]);
+    setIsTrainingDirty(false);
+    setActiveTab("1");
+  };
+
+  const confirmDiscardTraining = () => {
+    setDiscardTrainingOpen(false);
+    setAddTrainingOpen(false);
+    resetTrainingForm();
+  };
+
+  const handleSaveTraining = () => {
+    setSaveTrainingConfirmOpen(true);
+  };
+
+  const confirmSaveTraining = () => {
+    setSaveTrainingConfirmOpen(false);
+    setAddTrainingOpen(false);
+    resetTrainingForm();
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "Em andamento":
@@ -226,7 +313,7 @@ export function Treinamentos() {
           <h1 className="text-3xl font-bold text-foreground">Treinamentos e Materiais</h1>
           <p className="text-muted-foreground mt-1">Gerencie treinamentos, materiais e recursos</p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={() => setAddTrainingOpen(true)}>
           <Plus className="w-4 h-4" />
           Adicionar Treinamento
         </Button>
@@ -250,39 +337,78 @@ export function Treinamentos() {
         </Card>
 
         {/* Trainings List */}
-        <div className="space-y-3">
-          {filteredTrainings.map((training) => (
-            <Card key={training.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className="text-xl font-semibold text-foreground">{training.title}</h3>
-                      <Badge className={getStatusColor(training.status)}>
-                        {training.status}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Calendar className="w-4 h-4" />
-                        {training.date}
+        <div className="space-y-4">
+          <Accordion type="single" collapsible className="w-full space-y-3">
+            {filteredTrainings.map((training) => (
+              <AccordionItem key={training.id} value={training.id} className="bg-card border rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                <AccordionTrigger className="px-6 py-4 hover:no-underline [&[data-state=open]]:bg-muted/30">
+                  <div className="flex items-center justify-between w-full pr-4 text-left">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-xl font-semibold text-foreground">{training.title}</h3>
+                        <Badge className={getStatusColor(training.status)}>
+                          {training.status}
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Clock className="w-4 h-4" />
-                        {training.time}
-                      </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <span className="font-medium">{training.participants} participantes</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Badge variant="outline">{training.modulo}</Badge>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm mt-2">
+                        <div className="flex items-center gap-2 text-muted-foreground pt-1">
+                          <Calendar className="w-4 h-4" />
+                          {training.date}
+                        </div>
+                        <div className="flex items-center gap-2 text-muted-foreground pt-1">
+                          <Clock className="w-4 h-4" />
+                          {training.time}
+                        </div>
+                        <div className="flex items-center gap-2 text-muted-foreground pt-1">
+                          <Badge variant="outline">{training.modulo}</Badge>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </AccordionTrigger>
+                <AccordionContent className="px-6 pb-4 pt-2 border-t">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                    <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'alunos', title: 'Alunos Cadastrados', count: training.participants, trainingId: training.id})}>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span className="text-sm font-medium">Alunos</span>
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <span className="text-2xl font-bold">{training.participants}</span>
+                      </div>
+                    </Card>
+                    <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'empresas', title: 'Empresas Participantes', count: training.stats.empresas, trainingId: training.id})}>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span className="text-sm font-medium">Empresas</span>
+                          <Building className="w-4 h-4" />
+                        </div>
+                        <span className="text-2xl font-bold">{training.stats.empresas}</span>
+                      </div>
+                    </Card>
+                    <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'grupos', title: 'Grupos Econômicos', count: training.stats.gruposEconomicos, trainingId: training.id})}>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span className="text-sm font-medium">Grupos</span>
+                          <Building2 className="w-4 h-4" />
+                        </div>
+                        <span className="text-2xl font-bold">{training.stats.gruposEconomicos}</span>
+                      </div>
+                    </Card>
+                    <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'sem-empresa', title: 'Alunos Sem Empresa', count: training.stats.alunosSemEmpresa, trainingId: training.id})}>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span className="text-sm font-medium">Sem Empresa</span>
+                          <UserMinus className="w-4 h-4" />
+                        </div>
+                        <span className="text-2xl font-bold">{training.stats.alunosSemEmpresa}</span>
+                      </div>
+                    </Card>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </div>
       </div>
 
@@ -569,6 +695,216 @@ export function Treinamentos() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Add Training Modal */}
+      <Dialog open={addTrainingOpen} onOpenChange={(open) => {
+        if (!open) handleCancelTraining();
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Adicionar Novo Treinamento</DialogTitle>
+            <DialogDescription>
+              Preencha os dados básicos do treinamento e adicione os módulos necessários.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2">
+                <Label>Nome do Treinamento *</Label>
+                <Input
+                  placeholder="Ex: Formação Estoquista"
+                  value={trainingData.name}
+                  onChange={(e) => {
+                    setTrainingData({ ...trainingData, name: e.target.value });
+                    setIsTrainingDirty(true);
+                  }}
+                />
+              </div>
+              <div className="space-y-2 col-span-2">
+                <Label>Descrição</Label>
+                <Textarea
+                  placeholder="Descreva o propósito e os objetivos deste treinamento..."
+                  value={trainingData.description}
+                  onChange={(e) => {
+                    setTrainingData({ ...trainingData, description: e.target.value });
+                    setIsTrainingDirty(true);
+                  }}
+                  className="min-h-[100px]"
+                />
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Módulos do Treinamento</h3>
+                <Button variant="outline" size="sm" onClick={handleAddModule} className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Adicionar Módulo
+                </Button>
+              </div>
+
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <ScrollArea className="w-full" orientation="horizontal">
+                  <TabsList className="w-full flex justify-start mb-4 h-auto p-1 bg-muted/50 rounded-lg">
+                    {trainingModules.map((mod) => (
+                      <TabsTrigger
+                        key={mod.id}
+                        value={mod.id}
+                        className="flex items-center gap-2 py-2 px-4 data-[state=active]:bg-background"
+                      >
+                        Módulo {mod.id}
+                        {trainingModules.length > 1 && (
+                          <X
+                            className="w-3 h-3 cursor-pointer opacity-50 hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveModule(mod.id);
+                            }}
+                          />
+                        )}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </ScrollArea>
+                
+                {trainingModules.map((mod, index) => (
+                  <TabsContent key={mod.id} value={mod.id} className="space-y-4">
+                    <Card className="p-4 border shadow-sm">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2 col-span-2">
+                          <Label>Nome do Módulo</Label>
+                          <Input
+                            placeholder={`Ex: Introdução ao Módulo ${mod.id}`}
+                            value={mod.name}
+                            onChange={(e) => {
+                              const newModules = [...trainingModules];
+                              newModules[index].name = e.target.value;
+                              setTrainingModules(newModules);
+                              setIsTrainingDirty(true);
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-2 col-span-2">
+                          <Label>Descrição do Módulo</Label>
+                          <Textarea
+                            placeholder="Descreva o tema deste módulo específico..."
+                            value={mod.description}
+                            onChange={(e) => {
+                              const newModules = [...trainingModules];
+                              newModules[index].description = e.target.value;
+                              setTrainingModules(newModules);
+                              setIsTrainingDirty(true);
+                            }}
+                            className="min-h-[100px]"
+                          />
+                        </div>
+                      </div>
+                    </Card>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelTraining}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveTraining}>Criar Treinamento</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard Training Confirmation */}
+      <AlertDialog open={discardTrainingOpen} onOpenChange={setDiscardTrainingOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você possui alterações não salvas. Se prosseguir, todos os dados preenchidos serão perdidos. Deseja realmente descartar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDiscardTraining} className="bg-destructive hover:bg-destructive/90">
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save Training Confirmation */}
+      <AlertDialog open={saveTrainingConfirmOpen} onOpenChange={setSaveTrainingConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revisar Dados</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a criar o treinamento "{trainingData.name || 'Sem nome'}" com {trainingModules.length} módulo(s). Confirma as informações originais?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Revisar form</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveTraining}>
+              Confirmar e Criar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Stats Detail Modal */}
+      <Dialog open={statsModalOpen !== null} onOpenChange={(open) => {
+        if (!open) setStatsModalOpen(null);
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{statsModalOpen?.title}</DialogTitle>
+            <DialogDescription>
+              Listagem consolidada para o treinamento selecionado. ({statsModalOpen?.count} registros encontrados)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Card>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Documento / Empresa</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {/* Mocking generic rows to satisfy the UI display requirement */}
+                  {Array.from({ length: Math.min(statsModalOpen?.count || 0, 5) }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium">
+                        {statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos' ? 'Empresa / Grupo Exemplo S.A' : 'Participante Exemplo da Silva'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos' ? '00.000.000/0001-00' : 'Empresa Parceira Ltda'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Ativo</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(statsModalOpen?.count || 0) === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">Nenhum dado encontrado.</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+            {(statsModalOpen?.count || 0) > 5 && (
+              <p className="text-xs text-muted-foreground mt-4 text-center">
+                Listando os 5 primeiros registros. Em um cenário real, haveria paginação.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setStatsModalOpen(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
