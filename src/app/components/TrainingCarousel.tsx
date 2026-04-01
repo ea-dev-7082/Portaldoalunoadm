@@ -19,19 +19,24 @@ interface Training {
 interface TrainingCarouselProps {
   trainings: Training[];
   type: "future" | "past";
+  onSlideChange?: (index: number) => void;
 }
 
-export function TrainingCarousel({ trainings, type }: TrainingCarouselProps) {
+export function TrainingCarousel({ trainings, type, onSlideChange }: TrainingCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const itemsPerPage = 1;
   const maxIndex = Math.max(0, trainings.length - itemsPerPage);
 
   const nextSlide = () => {
-    setCurrentIndex((prev) => Math.min(prev + 1, maxIndex));
+    const newIndex = Math.min(currentIndex + 1, maxIndex);
+    setCurrentIndex(newIndex);
+    onSlideChange?.(newIndex);
   };
 
   const prevSlide = () => {
-    setCurrentIndex((prev) => Math.max(prev - 1, 0));
+    const newIndex = Math.max(currentIndex - 1, 0);
+    setCurrentIndex(newIndex);
+    onSlideChange?.(newIndex);
   };
 
   const currentTraining = trainings[currentIndex];

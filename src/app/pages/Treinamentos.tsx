@@ -53,6 +53,8 @@ import {
   Clock,
 } from "lucide-react";
 
+import React from "react";
+
 interface Training {
   id: string;
   title: string;
@@ -342,9 +344,8 @@ export function Treinamentos() {
               </TableHeader>
               <TableBody>
                 {filteredMaterials.map((material) => (
-                  <>
+                  <React.Fragment key={material.id}>
                     <TableRow
-                      key={material.id}
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleExpandMaterial(material.id)}
                     >
@@ -440,7 +441,7 @@ export function Treinamentos() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </TableBody>
             </Table>

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router";
-import { Menu, Sun, Moon } from "lucide-react";
+import { Menu, Sun, Moon, X, LayoutDashboard, Building2, GraduationCap, Users } from "lucide-react";
 import { Button } from "./ui/button";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "./ui/sheet";
 import { ThemeProvider, useTheme } from "next-themes";
 
 function ThemeToggle() {
@@ -22,14 +21,14 @@ function ThemeToggle() {
 }
 
 function LayoutContent() {
-  const [open, setOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
 
   const navItems = [
-    { label: "Dashboard", path: "/" },
-    { label: "Empresas", path: "/empresas" },
-    { label: "Treinamentos", path: "/treinamentos" },
-    { label: "Alunos", path: "/alunos" },
+    { label: "Dashboard", path: "/", icon: LayoutDashboard },
+    { label: "Empresas", path: "/empresas", icon: Building2 },
+    { label: "Treinamentos", path: "/treinamentos", icon: GraduationCap },
+    { label: "Alunos", path: "/alunos", icon: Users },
   ];
 
   const isActive = (path: string) => {
@@ -43,10 +42,10 @@ function LayoutContent() {
       <header className="sticky top-0 z-50 bg-card border-b border-border px-6 py-4 flex items-center justify-between backdrop-blur-sm bg-opacity-95">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center">
-            <span className="text-white font-bold text-lg">AP</span>
+            <span className="text-white font-bold text-lg">EA</span>
           </div>
           <div>
-            <h1 className="font-semibold text-foreground">AutoPeças School</h1>
+            <h1 className="font-semibold text-foreground">Escola de Autopeças</h1>
             <p className="text-sm text-muted-foreground">Sistema de Gestão de Treinamentos</p>
           </div>
         </div>
@@ -55,42 +54,55 @@ function LayoutContent() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="h-6 w-6" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] sm:w-[400px]">
-              <div className="flex flex-col gap-1 mb-6">
-                <SheetTitle className="text-xl font-semibold">Menu</SheetTitle>
-                <SheetDescription className="text-sm text-muted-foreground">
-                  Navegação principal do sistema
-                </SheetDescription>
-              </div>
-              <nav className="flex flex-col gap-2">
-                {navItems.map((item) => (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => setOpen(false)}
-                    className={`px-4 py-3 rounded-lg transition-colors ${
-                      isActive(item.path)
-                        ? "bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium"
-                        : "text-foreground hover:bg-accent"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-              </nav>
-            </SheetContent>
-          </Sheet>
+          <Button 
+            variant="ghost" 
+            size="icon"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            {sidebarOpen ? (
+              <X className="h-6 w-6 transition-transform" />
+            ) : (
+              <Menu className="h-6 w-6 transition-transform" />
+            )}
+          </Button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
+      {/* Collapsible Sidebar */}
+      <div className={`fixed left-0 top-[73px] bottom-0 bg-card border-r border-border transition-all duration-300 ease-in-out z-40 ${
+        sidebarOpen ? 'w-64' : 'w-16'
+      }`}>
+        <nav className="flex flex-col gap-1 p-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setSidebarOpen(false)}
+                className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${
+                  isActive(item.path)
+                    ? "bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium"
+                    : "text-foreground hover:bg-accent"
+                }`}
+                title={!sidebarOpen ? item.label : undefined}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                {sidebarOpen && (
+                  <span className="whitespace-nowrap overflow-hidden transition-opacity duration-300">
+                    {item.label}
+                  </span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Main Content with dynamic margin */}
+      <main className={`transition-all duration-300 ease-in-out ${
+        sidebarOpen ? 'ml-64' : 'ml-16'
+      } px-6 py-8`}>
         <Outlet />
       </main>
     </div>
