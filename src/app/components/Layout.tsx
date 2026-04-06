@@ -58,19 +58,29 @@ function LayoutContent() {
             variant="ghost" 
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="relative overflow-hidden w-10 h-10"
           >
-            {sidebarOpen ? (
-              <X className="h-6 w-6 transition-transform" />
-            ) : (
-              <Menu className="h-6 w-6 transition-transform" />
-            )}
+            <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${sidebarOpen ? 'rotate-180 opacity-0 scale-50' : 'rotate-0 opacity-100 scale-100'}`}>
+              <Menu className="h-6 w-6" />
+            </div>
+            <div className={`absolute inset-0 flex items-center justify-center transition-all duration-300 ${sidebarOpen ? 'rotate-0 opacity-100 scale-100' : '-rotate-180 opacity-0 scale-50'}`}>
+              <X className="h-6 w-6" />
+            </div>
           </Button>
         </div>
       </header>
 
+      {/* Backdrop overlay for open sidebar */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-30 transition-opacity"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Collapsible Sidebar */}
-      <div className={`fixed left-0 top-[73px] bottom-0 bg-card border-r border-border transition-all duration-300 ease-in-out z-40 ${
-        sidebarOpen ? 'w-64' : 'w-16'
+      <div className={`fixed right-0 top-[73px] bottom-0 bg-card border-l border-border transition-all duration-300 ease-in-out z-40 overflow-hidden ${
+        sidebarOpen ? 'w-64' : 'w-0 lg:w-16'
       }`}>
         <nav className="flex flex-col gap-1 p-2">
           {navItems.map((item) => {
@@ -88,21 +98,19 @@ function LayoutContent() {
                 title={!sidebarOpen ? item.label : undefined}
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && (
-                  <span className="whitespace-nowrap overflow-hidden transition-opacity duration-300">
-                    {item.label}
-                  </span>
-                )}
+                <span className={`whitespace-nowrap transition-opacity duration-300 ${
+                  sidebarOpen ? "opacity-100" : "opacity-0"
+                }`}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
       </div>
 
-      {/* Main Content with dynamic margin */}
-      <main className={`transition-all duration-300 ease-in-out ${
-        sidebarOpen ? 'ml-64' : 'ml-16'
-      } px-6 py-8`}>
+      {/* Main Content with fixed margin for the small sidebar */}
+      <main className="transition-all duration-300 ease-in-out lg:mr-16 px-6 py-8">
         <Outlet />
       </main>
     </div>

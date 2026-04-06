@@ -44,30 +44,37 @@ export function TrainingCarousel({ trainings, type, onSlideChange }: TrainingCar
   if (!currentTraining) return null;
 
   return (
-    <div className="relative">
-      {type === "future" && currentIndex === 0 ? (
-        // Featured current training card
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800">
-          <CardHeader>
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge className="bg-green-500 hover:bg-green-600">
+    <div className="relative flex flex-col h-full">
+      <Card className={`flex-1 flex flex-col min-h-[280px] transition-colors ${
+        type === "future" && currentIndex === 0
+          ? "bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800"
+          : "bg-white dark:bg-card border-border"
+      }`}>
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                {currentTraining.status ? (
+                  <Badge className={currentTraining.status === "Em andamento" ? "bg-green-500 hover:bg-green-600" : "bg-blue-500 hover:bg-blue-600"}>
                     {currentTraining.status}
                   </Badge>
-                  <Badge variant="outline" className="border-blue-400 text-blue-700 dark:text-blue-300">
-                    <Users className="w-3 h-3 mr-1" />
-                    {currentTraining.participants} alunos
-                  </Badge>
-                </div>
-                <CardTitle className="text-xl text-foreground">
-                  {currentTraining.title}
-                </CardTitle>
+                ) : type === "past" && (
+                  <Badge variant="secondary">Concluído</Badge>
+                )}
+                <Badge variant="outline" className={type === "future" ? "border-blue-400 text-blue-700 dark:text-blue-300" : ""}>
+                  <Users className="w-3 h-3 mr-1" />
+                  {currentTraining.participants} alunos
+                </Badge>
               </div>
+              <CardTitle className="text-xl text-foreground line-clamp-1">
+                {currentTraining.title}
+              </CardTitle>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+          </div>
+        </CardHeader>
+        <CardContent className="flex-1 flex flex-col justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 text-sm text-foreground/80">
                 <Calendar className="w-4 h-4" />
                 {currentTraining.date}
@@ -76,96 +83,107 @@ export function TrainingCarousel({ trainings, type, onSlideChange }: TrainingCar
                 <Clock className="w-4 h-4" />
                 {currentTraining.time}
               </div>
-              {currentTraining.location && (
-                <div className="flex items-center gap-2 text-sm text-foreground/80">
-                  <MapPin className="w-4 h-4" />
-                  {currentTraining.location}
-                </div>
-              )}
-              {currentTraining.companies && (
-                <div className="mt-4">
-                  <p className="text-sm font-medium text-foreground/80 mb-2">Empresas Participantes:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {currentTraining.companies.map((company) => (
-                      <Badge key={company} variant="secondary" className="bg-white dark:bg-gray-800">
-                        {company}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {currentTraining.progress !== undefined && (
-                <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-foreground/80">Progresso</span>
-                    <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">{currentTraining.progress}%</span>
-                  </div>
-                  <div className="w-full bg-white dark:bg-gray-700 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all"
-                      style={{ width: `${currentTraining.progress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        // Standard training card
-        <Card className={type === "past" ? "bg-muted" : ""}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h3 className="font-semibold text-foreground mb-2">{currentTraining.title}</h3>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="w-3 h-3" />
-                    {currentTraining.date}
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Clock className="w-3 h-3" />
-                    {currentTraining.time}
-                  </div>
+            {currentTraining.location && (
+              <div className="flex items-center gap-2 text-sm text-foreground/80">
+                <MapPin className="w-4 h-4" />
+                {currentTraining.location}
+              </div>
+            )}
+            {currentTraining.companies && currentTraining.companies.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs font-medium text-foreground/80 mb-1">Empresas Participantes:</p>
+                <div className="flex flex-wrap gap-1">
+                  {currentTraining.companies.slice(0, 3).map((company) => (
+                    <Badge key={company} variant="secondary" className="bg-white/50 dark:bg-black/20 text-xs">
+                      {company}
+                    </Badge>
+                  ))}
+                  {currentTraining.companies.length > 3 && (
+                    <Badge variant="secondary" className="bg-white/50 dark:bg-black/20 text-xs text-muted-foreground">
+                      +{currentTraining.companies.length - 3}
+                    </Badge>
+                  )}
                 </div>
               </div>
-              <Badge variant="outline" className="shrink-0">
-                <Users className="w-3 h-3 mr-1" />
-                {currentTraining.participants}
-              </Badge>
+            )}
+          </div>
+
+          {type === "future" && currentTraining.progress !== undefined && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-foreground/80">Progresso</span>
+                <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">{currentTraining.progress}%</span>
+              </div>
+              <div className="w-full bg-white dark:bg-gray-700 rounded-full h-1.5">
+                <div
+                  className="bg-blue-600 h-1.5 rounded-full transition-all"
+                  style={{ width: `${currentTraining.progress}%` }}
+                />
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {/* Navigation Controls */}
       {trainings.length > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={prevSlide}
-            disabled={currentIndex === 0}
-            className="gap-1"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Anterior
-          </Button>
-          
-          <div className="text-sm text-muted-foreground">
-            {currentIndex + 1} de {trainings.length}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={prevSlide}
+              disabled={currentIndex === 0}
+              className="w-8 h-8 rounded-full"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            
+            {/* Dots navigation */}
+            <div className="flex gap-1.5 px-2">
+              {trainings.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    setCurrentIndex(idx);
+                    onSlideChange?.(idx);
+                  }}
+                  className={`w-2 h-2 rounded-full transition-all ${
+                    idx === currentIndex 
+                      ? 'bg-blue-600 dark:bg-blue-400 w-4' 
+                      : 'bg-gray-300 dark:bg-gray-600 hover:bg-blue-400 dark:hover:bg-blue-500'
+                  }`}
+                  aria-label={`Ir para slide ${idx + 1}`}
+                />
+              ))}
+            </div>
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={nextSlide}
+              disabled={currentIndex >= maxIndex}
+              className="w-8 h-8 rounded-full"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
           </div>
           
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={nextSlide}
-            disabled={currentIndex >= maxIndex}
-            className="gap-1"
-          >
-            Próximo
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+          {/* Quick Return to closest course */}
+          {currentIndex > 0 && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => {
+                setCurrentIndex(0);
+                onSlideChange?.(0);
+              }}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+            >
+              Voltar ao mais próximo
+            </Button>
+          )}
         </div>
       )}
     </div>
