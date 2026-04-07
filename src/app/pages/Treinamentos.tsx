@@ -118,6 +118,7 @@ async function getAuthHeader() {
 interface Training {
   id: string;
   title: string;
+  description?: string;
   date: string;
   time: string;
   status: string;
@@ -128,6 +129,8 @@ interface Training {
     gruposEconomicos: number;
     alunosSemEmpresa: number;
   };
+  derivedCompanies: any[];
+  raw: any;
 }
 
 interface Material {
@@ -152,11 +155,11 @@ export function Treinamentos() {
 
   // Global Settings State
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [globalConfig, setGlobalConfig] = useState({
-    nota_minima_modulo: 7,
-    nota_minima_curso: 7,
-    presenca_minima_porcentagem: 75,
-    minutos_tolerancia_atraso: 15
+  const [globalConfig, setGlobalConfig] = useState<any>({
+    nota_minima_modulo: "7.0",
+    nota_minima_curso: "7.0",
+    presenca_minima_porcentagem: "75%",
+    minutos_tolerancia_atraso: "15"
   });
 
   const fetchConfig = useCallback(async () => {
@@ -167,10 +170,10 @@ export function Treinamentos() {
         const data = await res.json();
         if (data && data.id) {
           setGlobalConfig({
-            nota_minima_modulo: data.nota_minima_modulo,
-            nota_minima_curso: data.nota_minima_curso,
-            presenca_minima_porcentagem: data.presenca_minima_porcentagem,
-            minutos_tolerancia_atraso: data.minutos_tolerancia_atraso,
+            nota_minima_modulo: String(data.nota_minima_modulo || "7.0"),
+            nota_minima_curso: String(data.nota_minima_curso || "7.0"),
+            presenca_minima_porcentagem: String(data.presenca_minima_porcentagem || "75") + "%",
+            minutos_tolerancia_atraso: String(data.minutos_tolerancia_atraso || "15"),
           });
         }
       }
@@ -183,14 +186,32 @@ export function Treinamentos() {
     try {
       const authHdrs = await getAuthHeader();
       const hdrs = { ...authHdrs, "Content-Type": "application/json" };
-      await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=config", {
+      
+      // Clean data for API
+      const payload = {
+        nota_minima_modulo: parseFloat(String(globalConfig.nota_minima_modulo).replace(",", ".")),
+        nota_minima_curso: parseFloat(String(globalConfig.nota_minima_curso).replace(",", ".")),
+        presenca_minima_porcentagem: parseFloat(String(globalConfig.presenca_minima_porcentagem).replace("%", "").trim()),
+        minutos_tolerancia_atraso: parseInt(String(globalConfig.minutos_tolerancia_atraso).replace(/\D/g, ""))
+      };
+
+      const response = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=config", {
         method: "PATCH",
         headers: hdrs,
-        body: JSON.stringify(globalConfig)
+        body: JSON.stringify(payload)
       });
+
+      if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Erro ao salvar config: ${response.status} - ${errText}`);
+      }
+
       setSettingsOpen(false);
+      // Refresh local config to ensure formatting is reapplied
+      fetchConfig();
     } catch (err) {
       console.error("Save config error", err);
+      alert("Erro ao salvar configurações. Verifique o console.");
     }
   };
 
@@ -207,22 +228,48 @@ export function Treinamentos() {
       const trData = await response.json();
       const trArray = Array.isArray(trData) ? trData : [];
 
-      const mapped = trArray.map((t: any) => ({
-        id: t.id_treinamento,
-        title: t.nome,
-        description: t.descricao,
-        date: t.data_inicio ? new Date(t.data_inicio).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }) : "Não definida",
-        time: t.data_inicio ? `${new Date(t.data_inicio).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Não definido",
-        status: t.status || "Agendado",
-        participants: t.students ? t.students.length : 0,
-        modulo: t.modules && t.modules.length > 0 ? moduloLabel(0, t.modules[0].modulo?.nome) : "N/A",
-        stats: {
-          empresas: t.companies ? t.companies.length : 0,
-          gruposEconomicos: 0,
-          alunosSemEmpresa: 0
-        },
-        raw: t
-      }));
+      const mapped = trArray.map((t: any) => {
+        // Derive unique companies from students
+        const uniqueCompaniesMap = new Map();
+        t.students?.forEach((s: any) => {
+          const emp = s.aluno?.empresa;
+          if (emp) {
+            if (!uniqueCompaniesMap.has(emp.id_empresa)) {
+              uniqueCompaniesMap.set(emp.id_empresa, {
+                id: emp.id_empresa,
+                nome: emp.nome,
+                cnpj: emp.cnpj,
+                matriz: emp.matriz?.nome || "-",
+                // Partnership is active if there is an 'Ativo' formation record
+                parceria: emp.formacao?.some((f: any) => f.status === 'Ativo') ? 'Programa Formação' : 'Venda Direta',
+                alunos: 0,
+                id_matriz: emp.id_matriz,
+                is_matriz: emp.is_matriz
+              });
+            }
+            uniqueCompaniesMap.get(emp.id_empresa).alunos++;
+          }
+        });
+        const derivedCompanies = Array.from(uniqueCompaniesMap.values());
+
+        return {
+          id: t.id_treinamento,
+          title: t.nome,
+          description: t.descricao,
+          date: t.data_inicio ? new Date(t.data_inicio).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }) : "Não definida",
+          time: t.data_inicio ? `${new Date(t.data_inicio).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Não definido",
+          status: t.status || "Agendado",
+          participants: t.students ? t.students.length : 0,
+          modulo: t.modules && t.modules.length > 0 ? moduloLabel(0, t.modules[0].modulo?.nome) : "N/A",
+          stats: {
+            empresas: derivedCompanies.length,
+            gruposEconomicos: new Set(derivedCompanies.filter(c => c.id_matriz || c.is_matriz).map(c => c.id_matriz || c.id)).size,
+            alunosSemEmpresa: t.students?.filter((s: any) => !s.aluno?.id_empresa).length || 0
+          },
+          derivedCompanies,
+          raw: t
+        };
+      });
       setTrainings(mapped);
     } catch (err: any) {
       console.error("fetchTrainings error:", err);
@@ -358,8 +405,7 @@ export function Treinamentos() {
     endDate: "",
     partnership: "venda-direta",
     partnershipCompany: "",
-    students: [] as string[],
-    companies: [] as string[]
+    students: [] as string[]
   });
   interface ModuloParte {
     ordem: number;
@@ -496,8 +542,7 @@ export function Treinamentos() {
       endDate: formatForDateTimeLocal(raw.data_fim),
       partnership: "venda-direta",
       partnershipCompany: "",
-      students: raw.students ? raw.students.map((s: any) => s.id_aluno) : [],
-      companies: raw.companies ? raw.companies.map((c: any) => c.id_empresa) : []
+      students: raw.students ? raw.students.map((s: any) => s.id_aluno) : []
     });
 
     if (raw.modules && raw.modules.length > 0) {
@@ -528,7 +573,6 @@ export function Treinamentos() {
   const handleAddNewTraining = async () => {
     // Refresh background data
     fetchStudents();
-    fetchCompanies();
 
     setEditingTrainingId(null);
     setTrainingData({
@@ -540,10 +584,9 @@ export function Treinamentos() {
       endDate: "",
       partnership: "venda-direta",
       partnershipCompany: "",
-      students: [],
-      companies: []
+      students: []
     });
-    setTrainingModules([{ id: "1", name: "Módulo 1", description: "" }]);
+    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
     setAddTrainingOpen(true);
     setIsTrainingDirty(false);
   };
@@ -598,8 +641,7 @@ export function Treinamentos() {
       endDate: "",
       partnership: "venda-direta",
       partnershipCompany: "",
-      students: [],
-      companies: []
+      students: []
     });
     setEditingTrainingId(null);
     setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
@@ -671,7 +713,6 @@ export function Treinamentos() {
           duracao_minutos: m.duracao_minutos || null,
           aulas: m.aulas,
         })),
-        companies: trainingData.companies,
         students: trainingData.students
       };
 
@@ -1379,7 +1420,7 @@ export function Treinamentos() {
               <Tabs defaultValue="modulos" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-4">
                   <TabsTrigger value="modulos">Módulos</TabsTrigger>
-                  <TabsTrigger value="participantes">Participantes ({trainingData.students.length + trainingData.companies.length})</TabsTrigger>
+                  <TabsTrigger value="participantes">Alunos ({trainingData.students.length})</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="modulos" className="space-y-4">
@@ -1777,40 +1818,13 @@ export function Treinamentos() {
 
                   <div className="border-t pt-8"></div>
 
-                  {/* SEÇÃO DE EMPRESAS PARTICIPANTES */}
+                  {/* SEÇÃO DE EMPRESAS PARTICIPANTES (AUTOMÁTICA) */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-semibold flex items-center gap-2">
                         <Building2 className="w-5 h-5 text-blue-600" />
-                        Empresas Participantes ({trainingData.companies.length})
+                        Empresas Participantes
                       </h3>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Adicionar Empresa ao Treinamento</Label>
-                      <Select onValueChange={(val) => {
-                        if (!trainingData.companies.includes(val)) {
-                          setTrainingData({
-                            ...trainingData,
-                            companies: [...trainingData.companies, val]
-                          });
-                          setIsTrainingDirty(true);
-                        }
-                      }}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione uma empresa corporativa..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allCompanies
-                            .filter(c => !trainingData.companies.includes(c.id))
-                            .sort((a, b) => a.nome.localeCompare(b.nome))
-                            .map(c => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.nome} ({c.cnpj})
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
                     </div>
 
                     <div className="border rounded-md max-h-[250px] overflow-auto">
@@ -1819,40 +1833,23 @@ export function Treinamentos() {
                           <TableRow>
                             <TableHead>Nome da Empresa</TableHead>
                             <TableHead>CNPJ</TableHead>
-                            <TableHead className="w-[50px]"></TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {trainingData.companies.length > 0 ? (
-                            trainingData.companies.map(companyId => {
-                              const company = allCompanies.find(c => c.id === companyId);
+                          {Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).length > 0 ? (
+                            Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).map(empName => {
+                              const company = allCompanies.find(c => c.nome === empName);
                               return (
-                                <TableRow key={companyId}>
-                                  <TableCell className="font-medium">{company?.nome}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs">{company?.cnpj}</TableCell>
-                                  <TableCell>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-destructive hover:bg-red-50"
-                                      onClick={() => {
-                                        setTrainingData({
-                                          ...trainingData,
-                                          companies: trainingData.companies.filter(id => id !== companyId)
-                                        });
-                                        setIsTrainingDirty(true);
-                                      }}
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </Button>
-                                  </TableCell>
+                                <TableRow key={empName}>
+                                  <TableCell className="font-medium">{empName}</TableCell>
+                                  <TableCell className="text-muted-foreground text-xs">{company?.cnpj || "N/A"}</TableCell>
                                 </TableRow>
                               );
                             })
                           ) : (
                             <TableRow>
-                              <TableCell colSpan={3} className="text-center py-4 text-muted-foreground text-sm italic">
-                                Nenhuma empresa participante adicionada.
+                              <TableCell colSpan={2} className="text-center py-4 text-muted-foreground text-sm italic">
+                                Nenhuma empresa identificada através dos alunos.
                               </TableCell>
                             </TableRow>
                           )}
@@ -1998,59 +1995,79 @@ export function Treinamentos() {
                     </TableHead>
                     <TableHead className="cursor-pointer select-none hover:bg-muted/50 transition-colors">
                       <div className="flex items-center gap-1">
-                        <MultiSelectFilter
-                          label="Status"
-                          options={["Ativo", "Pendente", "Concluído", "Suspenso"]}
-                          selectedValues={selectedStatsStatuses}
-                          onSelect={setSelectedStatsStatuses}
-                        />
-                        <span onClick={() => handleSort(setStatsSort, statsSort, "status")}>
-                          {getSortIcon(statsSort, "status")}
-                        </span>
+                        {statsModalOpen?.type === 'empresas' ? 'Status / Parceria' : 'Status'}
                       </div>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {/* Generic mock data generation focusing on the display for search and sort demo */}
                   {genericSort(
-                    Array.from({ length: statsModalOpen?.count || 10 }).map((_, i) => ({
-                      id: String(i),
-                      nome: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos'
-                        ? ['AutoBrasil SA', 'Peças Plus', 'Moto Parts', 'TurboPeças', 'Premium Auto'][i % 5]
-                        : ['João Silva', 'Maria Santos', 'Carlos Lima', 'Ana Costa', 'Roberto Mendes'][i % 5],
-                      info: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos'
-                        ? `00.000.000/0001-${i < 10 ? '0' + i : i}`
-                        : ['AutoBrasil SA', 'Moto Parts', 'Peças Plus', 'Nacional Autopeças'][i % 4],
-                      status: ["Ativo", "Pendente", "Concluído", "Suspenso"][i % 4]
-                    })).filter(item => {
+                    (statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos'
+                      ? (trainings.find(t => t.id === statsModalOpen?.trainingId)?.derivedCompanies || []).map(c => ({
+                        id: c.id,
+                        nome: c.nome,
+                        info: c.cnpj,
+                        extra: c.matriz,
+                        parceria: c.parceria,
+                        alunos: c.alunos,
+                        status: "Ativo"
+                      }))
+                      : (trainings.find(t => t.id === statsModalOpen?.trainingId)?.raw?.students || []).map((s: any, i: number) => ({
+                        id: s.id_aluno || String(i),
+                        nome: s.aluno?.nome || "Desconhecido",
+                        info: s.aluno?.empresa?.nome || "Sem Empresa",
+                        status: "Ativo"
+                      }))
+                    ).filter((item: any) => {
                       const matchesSearch = item.nome.toLowerCase().includes(statsSearch.toLowerCase()) ||
                         item.info.toLowerCase().includes(statsSearch.toLowerCase());
                       const matchesStatus = selectedStatsStatuses.length === 0 || selectedStatsStatuses.includes(item.status);
                       return matchesSearch && matchesStatus;
                     }),
                     statsSort
-                  ).map((item) => (
+                  ).map((item: any) => (
                     <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.nome}</TableCell>
-                      <TableCell className="text-muted-foreground">{item.info}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "outline-none",
-                            item.status === "Ativo" ? "bg-green-50 text-green-700 border-green-200" :
-                              item.status === "Pendente" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                                item.status === "Concluído" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                                  "bg-red-50 text-red-700 border-red-200"
+                      <TableCell className="font-medium">
+                        <div className="flex flex-col">
+                          <span>{item.nome}</span>
+                          {item.extra && item.extra !== "-" && (
+                            <span className="text-[10px] text-muted-foreground">Matriz: {item.extra}</span>
                           )}
-                        >
-                          {item.status}
-                        </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {statsModalOpen?.type === 'empresas' ? (
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs">{item.info}</span>
+                            <Badge variant="secondary" className="w-fit text-[9px] h-4">
+                              {item.parceria}
+                            </Badge>
+                          </div>
+                        ) : item.info}
+                      </TableCell>
+                      <TableCell>
+                        {statsModalOpen?.type === 'empresas' ? (
+                          <Badge variant="outline" className="gap-1">
+                            <Users className="w-3 h-3" /> {item.alunos} Alunos
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "outline-none",
+                              item.status === "Ativo" ? "bg-green-50 text-green-700 border-green-200" :
+                                item.status === "Pendente" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                  item.status === "Concluído" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                                    "bg-red-50 text-red-700 border-red-200"
+                            )}
+                          >
+                            {item.status}
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
-                  {statsModalOpen?.count === 0 && (
+                  {(!trainings.find(t => t.id === statsModalOpen?.trainingId)) && (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">Nenhum dado encontrado.</TableCell>
                     </TableRow>
@@ -2074,41 +2091,61 @@ export function Treinamentos() {
               Ajuste as regras padrão. Elas serão aplicadas aos novos treinamentos que você criar a partir de agora.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-5 py-4">
             <div className="space-y-2">
-              <Label>Nota Mínima do Módulo</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nota Mínima do Módulo</Label>
               <Input
-                type="number"
-                step="0.1"
+                placeholder="Ex: 7,0"
                 value={globalConfig.nota_minima_modulo}
-                onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_modulo: Number(e.target.value) })}
+                onChange={(e) => {
+                    let val = e.target.value.replace(/[^\d.,]/g, "").replace(".", ",");
+                    setGlobalConfig({ ...globalConfig, nota_minima_modulo: val });
+                }}
+                onBlur={(e) => {
+                    let val = e.target.value.replace(",", ".");
+                    if (!isNaN(parseFloat(val))) {
+                        setGlobalConfig({ ...globalConfig, nota_minima_modulo: parseFloat(val).toFixed(1).replace(".", ",") });
+                    }
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label>Nota Mínima do Curso</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nota Mínima do Curso</Label>
               <Input
-                type="number"
-                step="0.1"
+                placeholder="Ex: 7,0"
                 value={globalConfig.nota_minima_curso}
-                onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_curso: Number(e.target.value) })}
+                onChange={(e) => {
+                    let val = e.target.value.replace(/[^\d.,]/g, "").replace(".", ",");
+                    setGlobalConfig({ ...globalConfig, nota_minima_curso: val });
+                }}
+                onBlur={(e) => {
+                    let val = e.target.value.replace(",", ".");
+                    if (!isNaN(parseFloat(val))) {
+                        setGlobalConfig({ ...globalConfig, nota_minima_curso: parseFloat(val).toFixed(1).replace(".", ",") });
+                    }
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label>Presença Mínima (%)</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Presença Mínima (%)</Label>
               <Input
-                type="number"
-                step="1"
+                placeholder="Ex: 75%"
                 value={globalConfig.presenca_minima_porcentagem}
-                onChange={(e) => setGlobalConfig({ ...globalConfig, presenca_minima_porcentagem: Number(e.target.value) })}
+                onChange={(e) => {
+                    let val = e.target.value.replace(/[^\d]/g, "");
+                    setGlobalConfig({ ...globalConfig, presenca_minima_porcentagem: val ? val + "%" : "" });
+                }}
               />
             </div>
             <div className="space-y-2">
-              <Label>Tempo de Tolerância para Atraso (min)</Label>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tempo de Tolerância para Atraso (minutos)</Label>
               <Input
-                type="number"
-                step="1"
+                placeholder="Ex: 15"
                 value={globalConfig.minutos_tolerancia_atraso}
-                onChange={(e) => setGlobalConfig({ ...globalConfig, minutos_tolerancia_atraso: Number(e.target.value) })}
+                onChange={(e) => {
+                    let val = e.target.value.replace(/[^\d]/g, "");
+                    setGlobalConfig({ ...globalConfig, minutos_tolerancia_atraso: val });
+                }}
               />
             </div>
           </div>

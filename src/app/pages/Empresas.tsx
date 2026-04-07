@@ -19,6 +19,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../components/ui/select";
 import {
+  Tabs, TabsContent, TabsList, TabsTrigger,
+} from "../components/ui/tabs";
+import { Checkbox } from "../components/ui/checkbox";
+import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
 import {
@@ -26,6 +30,7 @@ import {
   MapPin, Phone, Mail, UserRound, CheckCircle2, Handshake, X, Percent,
 } from "lucide-react";
 import { SearchInput } from "../components/ui/search-input";
+import { cn } from "../components/ui/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://wytbbtlxrhkvqvlwjivc.supabase.co";
@@ -111,14 +116,31 @@ export function Empresas() {
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
   // -- Parcerias in form
-  const [allParcerias, setAllParcerias] = useState<Parceria[]>([]);
-  const [selectedParcerias, setSelectedParcerias] = useState<Parceria[]>([]);
+  const [allParcerias, setAllParcerias] = useState<Parceria[]>([]); // Formação plans
+  const [regularParcerias, setRegularParcerias] = useState<any[]>([]); // Regular partnerships
+  const [selectedParcerias, setSelectedParcerias] = useState<Parceria[]>([]); // Selected Formação plan
+  const [selectedRegularParcerias, setSelectedRegularParcerias] = useState<any[]>([]); // Selected regular partnerships
+  const [showFormacao, setShowFormacao] = useState(false);
+  
   const [parceriaSearch, setParceriaSearch] = useState("");
   const [showParceriaDropdown, setShowParceriaDropdown] = useState(false);
   const parceriaSearchRef = useRef<HTMLDivElement>(null);
 
   // -- Inline contact slots in form
   const [contactSlots, setContactSlots] = useState<ContactSlot[]>([]);
+
+  // -- View Tabs
+  const [activeTab, setActiveTab] = useState("geral");
+  const [alunosEmpresa, setAlunosEmpresa] = useState<any[]>([]);
+  const [isLoadingAlunosEmpresa, setIsLoadingAlunosEmpresa] = useState(false);
+  const [alunosSearch, setAlunosSearch] = useState("");
+  const [contatosSearch, setContatosSearch] = useState("");
+
+  const formatCPF = (cpf: string) => {
+    const raw = (cpf || "").replace(/\D/g, "");
+    if (raw.length !== 11) return cpf;
+    return `${raw.slice(0, 3)}.${raw.slice(3, 6)}.${raw.slice(6, 9)}-${raw.slice(9, 11)}`;
+  };
 
   // ─── Fetch ──────────────────────────────────────────────────────────────────
   const fetchEmpresas = useCallback(async () => {
@@ -142,13 +164,38 @@ export function Empresas() {
 
   const fetchParcerias = useCallback(async () => {
     try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/parceria?select=id_parceria,nome,desconto&order=nome`,
+      // 1. Formation plans
+      const resPlans = await fetch(
+        `${SUPABASE_URL}/rest/v1/formacao_planos?select=*&ativo=eq.true&order=nome`,
         { headers: restHeaders }
       );
-      if (res.ok) setAllParcerias(await res.json());
-    } catch (e) { console.error("Erro ao buscar parcerias:", e); }
+      if (resPlans.ok) setAllParcerias(await resPlans.json());
+      
+      // 2. Regular partnerships
+      const resReg = await fetch(
+        `${SUPABASE_URL}/rest/v1/parceria?select=*&order=nome`,
+        { headers: restHeaders }
+      );
+      if (resReg.ok) setRegularParcerias(await resReg.json());
+    } catch (e) { console.error("Erro ao carregar dados de parcerias:", e); }
   }, []);
+
+  const fetchAlunosEmpresa = async (empresaId: string) => {
+    setIsLoadingAlunosEmpresa(true);
+    try {
+        const [resColab, resAlunos] = await Promise.all([
+            fetch(`${SUPABASE_URL}/rest/v1/colaborador?id_empresa=eq.${empresaId}&select=*`, { headers: restHeaders }),
+            fetch(`${SUPABASE_URL}/rest/v1/aluno?id_empresa=eq.${empresaId}&select=*`, { headers: restHeaders })
+        ]);
+        
+        let all: any[] = [];
+        if (resColab.ok) all = [...all, ...(await resColab.json())];
+        if (resAlunos.ok) all = [...all, ...(await resAlunos.json())];
+        
+        setAlunosEmpresa(all);
+    } catch (e) { console.error("Erro ao buscar alunos da empresa:", e); }
+    finally { setIsLoadingAlunosEmpresa(false); }
+  };
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -227,8 +274,21 @@ export function Empresas() {
   };
 
   // ─── Empresa overlay helpers ─────────────────────────────────────────────────
-  const openView = (company: any) => {
+  const openView = async (company: any) => {
     setSelectedEmpresa(company);
+    setActiveTab("geral");
+    fetchAlunosEmpresa(company.id_empresa);
+    
+    // Load REGULAR partnerships for view
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/empresa_parceria?id_empresa=eq.${company.id_empresa}&select=id_parceria`, { headers: restHeaders });
+        if (res.ok) {
+            const rels = await res.json();
+            const ids = rels.map((r: any) => r.id_parceria);
+            setSelectedRegularParcerias(regularParcerias.filter(p => ids.includes(p.id_parceria)));
+        }
+    } catch { setSelectedRegularParcerias([]); }
+
     setViewOverlayOpen(true);
   };
 
@@ -238,6 +298,8 @@ export function Empresas() {
     setFormData(emptyCompanyForm);
     setFilledByCnpj([]);
     setSelectedParcerias([]);
+    setSelectedRegularParcerias([]);
+    setShowFormacao(false);
     setContactSlots([]);
     setParceriaSearch("");
     setFormOverlayOpen(true);
@@ -257,18 +319,33 @@ export function Empresas() {
     setFilledByCnpj([]);
     setContactSlots([]);
     setParceriaSearch("");
-    // Load current parcerias for this empresa
-    try {
-      const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/empresa_parceria?id_empresa=eq.${company.id_empresa}&select=id_parceria`,
-        { headers: restHeaders }
-      );
-      if (res.ok) {
-        const rels: { id_parceria: string }[] = await res.json();
-        const ids = rels.map(r => r.id_parceria);
-        setSelectedParcerias(allParcerias.filter(p => ids.includes(p.id_parceria)));
+    
+    // Load FORMACAO partnership
+    const partnership = company.formacao;
+    if (partnership && partnership.id_plano) {
+      const plano = allParcerias.find(p => p.id_parceria === partnership.id_plano);
+      if (plano) {
+        setSelectedParcerias([plano]);
+        setShowFormacao(true);
+      } else {
+        setSelectedParcerias([{ id_parceria: partnership.id_plano, nome: "Plano Vinculado", desconto: 0 }]);
+        setShowFormacao(true);
       }
-    } catch { setSelectedParcerias([]); }
+    } else {
+      setSelectedParcerias([]);
+      setShowFormacao(false);
+    }
+
+    // Load REGULAR partnerships
+    try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/empresa_parceria?id_empresa=eq.${company.id_empresa}&select=id_parceria`, { headers: restHeaders });
+        if (res.ok) {
+            const rels = await res.json();
+            const ids = rels.map((r: any) => r.id_parceria);
+            setSelectedRegularParcerias(regularParcerias.filter(p => ids.includes(p.id_parceria)));
+        }
+    } catch { setSelectedRegularParcerias([]); }
+
     setViewOverlayOpen(false);
     setFormOverlayOpen(true);
   };
@@ -304,10 +381,13 @@ export function Empresas() {
       };
       const res = await fetch(`${SUPABASE_URL}/functions/v1/empresas-crud`, {
         method: isEditing ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}`, "apikey": ANON_KEY },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Erro ao salvar empresa.");
+      if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody.error || "Erro ao salvar empresa.");
+      }
 
       // Resolve empresa ID
       let empresaId: string | null = editingId;
@@ -360,20 +440,36 @@ export function Empresas() {
           });
         }
 
-        // 2. Sync parceria relations
-        // Delete old relations then insert new
+        // 2. Sync partnership relations (empresa_formacao)
         await fetch(
-          `${SUPABASE_URL}/rest/v1/empresa_parceria?id_empresa=eq.${empresaId}`,
+          `${SUPABASE_URL}/rest/v1/empresa_formacao?id_empresa=eq.${empresaId}`,
           { method: "DELETE", headers: restHeaders }
         );
-        if (selectedParcerias.length > 0) {
-          await fetch(`${SUPABASE_URL}/rest/v1/empresa_parceria`, {
+        if (showFormacao && selectedParcerias.length > 0) {
+          await fetch(`${SUPABASE_URL}/rest/v1/empresa_formacao`, {
             method: "POST",
             headers: restHeaders,
-            body: JSON.stringify(
-              selectedParcerias.map(p => ({ id_parceria: p.id_parceria, id_empresa: empresaId }))
-            ),
+            body: JSON.stringify({
+              id_empresa: empresaId,
+              id_plano: selectedParcerias[0].id_parceria,
+              status: 'Ativo'
+            }),
           });
+        }
+
+        // 3. Sync regular parcerias
+        await fetch(
+            `${SUPABASE_URL}/rest/v1/empresa_parceria?id_empresa=eq.${empresaId}`,
+            { method: "DELETE", headers: restHeaders }
+        );
+        if (selectedRegularParcerias.length > 0) {
+            await fetch(`${SUPABASE_URL}/rest/v1/empresa_parceria`, {
+                method: "POST",
+                headers: restHeaders,
+                body: JSON.stringify(
+                    selectedRegularParcerias.map(p => ({ id_empresa: empresaId, id_parceria: p.id_parceria }))
+                )
+            });
         }
       }
 
@@ -752,123 +848,300 @@ export function Empresas() {
           VIEW OVERLAY — click on a company row
       ══════════════════════════════════════════════════════════════════════ */}
       <Dialog open={viewOverlayOpen} onOpenChange={setViewOverlayOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <DialogTitle className="text-2xl truncate">{selectedEmpresa?.nome}</DialogTitle>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  <Badge variant="outline" className="font-mono text-xs">{selectedEmpresa?.cnpj}</Badge>
-                  <Badge variant={selectedEmpresa?.is_matriz ? "default" : "secondary"}>
-                    {selectedEmpresa?.is_matriz ? "Matriz" : selectedEmpresa?.id_matriz ? "Filial" : "Independente"}
-                  </Badge>
-                  {selectedEmpresa?.id_matriz && (
-                    <span className="text-xs text-muted-foreground">
-                      ↳ {matrizesList.find(m => m.id_empresa === selectedEmpresa.id_matriz)?.nome}
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2 flex-shrink-0">
-                <Button variant="outline" size="sm" onClick={() => openEdit(selectedEmpresa)}>
-                  <Pencil className="w-4 h-4 mr-1.5" /> Editar
-                </Button>
-                <Button variant="destructive" size="sm" onClick={() => openDelete(selectedEmpresa?.id_empresa)}>
-                  <Trash2 className="w-4 h-4 mr-1.5" /> Excluir
-                </Button>
+        <DialogContent className="max-w-3xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-primary/5 p-6 border-b border-border flex items-start justify-between">
+            <div className="space-y-1.5 flex-1 min-w-0">
+              <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+                <Building2 className="w-6 h-6 text-primary" />
+                <span className="truncate">{selectedEmpresa?.nome}</span>
+              </DialogTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="font-mono text-xs bg-background/50 text-muted-foreground">{selectedEmpresa?.cnpj}</Badge>
+                <Badge variant={selectedEmpresa?.is_matriz ? "default" : "secondary"} className="uppercase text-[10px] tracking-wider font-bold">
+                  {selectedEmpresa?.is_matriz ? "Matriz (Sede)" : selectedEmpresa?.id_matriz ? "Filial" : "Independente"}
+                </Badge>
               </div>
             </div>
-          </DialogHeader>
+            <div className="flex gap-2 flex-shrink-0 ml-4 pt-1">
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-background hover:bg-accent border-border" onClick={() => openEdit(selectedEmpresa)}>
+                <Pencil className="w-3.5 h-3.5" /> Editar
+              </Button>
+              <Button size="sm" variant="destructive" className="h-8 gap-1.5 bg-destructive/10 hover:bg-destructive text-destructive hover:text-destructive-foreground border-none shadow-none" onClick={() => openDelete(selectedEmpresa?.id_empresa)}>
+                <Trash2 className="w-3.5 h-3.5" /> Excluir
+              </Button>
+            </div>
+          </div>
 
-          <div className="space-y-5 mt-2">
-            {/* Address */}
-            {selectedEmpresa?.endereco?.logradouro ? (
-              <div className="bg-muted rounded-lg p-4">
-                <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                  <MapPin className="w-4 h-4" /> Endereço
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {selectedEmpresa.endereco.logradouro}
-                  {selectedEmpresa.endereco.numero && `, ${selectedEmpresa.endereco.numero}`}
-                  {selectedEmpresa.endereco.complemento && ` — ${selectedEmpresa.endereco.complemento}`}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {[selectedEmpresa.endereco.bairro, selectedEmpresa.endereco.cidade, selectedEmpresa.endereco.estado]
-                    .filter(Boolean).join(" · ")}
-                </p>
-                {selectedEmpresa.endereco.cep && (
-                  <p className="text-xs text-muted-foreground mt-1">CEP: {selectedEmpresa.endereco.cep}</p>
-                )}
-              </div>
-            ) : (
-              <div className="bg-muted rounded-lg p-4 text-sm text-muted-foreground">
-                <MapPin className="w-4 h-4 inline mr-1" /> Endereço não cadastrado.
-              </div>
-            )}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
+            <div className="px-6 py-2 border-b bg-muted/30">
+              <TabsList className="grid grid-cols-4 w-full h-10 bg-muted/20 gap-1 p-1 rounded-lg">
+                <TabsTrigger value="geral" className="text-[10px] uppercase font-bold tracking-tight h-8 data-[state=active]:bg-background data-[state=active]:text-primary">Geral</TabsTrigger>
+                <TabsTrigger value="parcerias" className="text-[10px] uppercase font-bold tracking-tight h-8 data-[state=active]:bg-background data-[state=active]:text-primary">Parcerias</TabsTrigger>
+                <TabsTrigger value="alunos" className="text-[10px] uppercase font-bold tracking-tight h-8 data-[state=active]:bg-background data-[state=active]:text-primary">Alunos</TabsTrigger>
+                <TabsTrigger value="contatos" className="text-[10px] uppercase font-bold tracking-tight h-8 data-[state=active]:bg-background data-[state=active]:text-primary">Contatos</TabsTrigger>
+              </TabsList>
+            </div>
 
-            {/* Contacts inside view */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold flex items-center gap-2">
-                  <UserRound className="w-4 h-4" />
-                  Contatos
-                  {selectedEmpresaContacts.length > 0 && (
-                    <Badge variant="secondary">{selectedEmpresaContacts.length}</Badge>
-                  )}
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openCreateContact(selectedEmpresa?.id_empresa, true)}
-                >
-                  <Plus className="w-4 h-4 mr-1" /> Adicionar
-                </Button>
-              </div>
-
-              {selectedEmpresaContacts.length === 0 ? (
-                <div className="border border-dashed border-border rounded-lg p-6 text-center text-sm text-muted-foreground">
-                  Nenhum contato cadastrado para esta empresa.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {selectedEmpresaContacts.map(contact => (
-                    <div
-                      key={contact.id_contato}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-sm">{contact.nome}</p>
-                          {contact.setor && (
-                            <Badge variant="outline" className="text-xs">{contact.setor}</Badge>
-                          )}
-                        </div>
-                        <div className="flex gap-4 mt-1 flex-wrap">
-                          {contact.telefone && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Phone className="w-3 h-3" /> {contact.telefone}
-                            </p>
-                          )}
-                          {contact.email && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Mail className="w-3 h-3" /> {contact.email}
-                            </p>
-                          )}
+            <div className="flex-1 overflow-y-auto p-6 bg-card/5 custom-scrollbar">
+              <TabsContent value="geral" className="mt-0 space-y-6 focus-visible:ring-0 outline-none">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                       <MapPin className="w-3 h-3" /> Endereço Comercial
+                    </h4>
+                    {selectedEmpresa?.endereco?.logradouro ? (
+                      <div className="bg-background border border-border/60 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow duration-300">
+                        <p className="text-sm font-semibold text-foreground leading-relaxed">
+                          {selectedEmpresa.endereco.logradouro}, {selectedEmpresa.endereco.numero}
+                        </p>
+                        {selectedEmpresa.endereco.complemento && (
+                          <p className="text-xs text-muted-foreground mt-1.5 italic bg-muted/30 px-2 py-1 rounded inline-block">{selectedEmpresa.endereco.complemento}</p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-3 font-medium">
+                          {selectedEmpresa.endereco.bairro}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {selectedEmpresa.endereco.cidade} — {selectedEmpresa.endereco.estado}
+                        </p>
+                        <div className="mt-4 pt-4 border-t flex items-center justify-between">
+                           <span className="text-[10px] font-mono text-primary/60 font-bold uppercase">CEP: {selectedEmpresa.endereco.cep}</span>
+                           <Badge variant="outline" className="text-[9px] uppercase tracking-tighter opacity-50">Local principal</Badge>
                         </div>
                       </div>
-                      <div className="flex gap-1 flex-shrink-0 ml-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditContact(contact)}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openDeleteContact(contact.id_contato)}>
-                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                        </Button>
+                    ) : (
+                      <div className="bg-muted/40 border-dashed border border-border rounded-xl p-8 text-center text-xs text-muted-foreground italic flex flex-col items-center gap-2">
+                         <span className="opacity-50 underline decoration-dotted">Endereço não informado.</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                      <Building2 className="w-3 h-3" /> Hierarquia & Estrutura
+                    </h4>
+                    <div className="bg-background border border-border/60 rounded-xl p-5 space-y-4 shadow-sm">
+                      <div>
+                        <Label className="text-[9px] uppercase font-black opacity-40 leading-none">Status Corporativo</Label>
+                        <p className="text-sm font-bold mt-1 text-primary">{selectedEmpresa?.is_matriz ? "Matriz Central / Sede" : "Filial / Unidade de Apoio"}</p>
+                      </div>
+                      {!selectedEmpresa?.is_matriz && selectedEmpresa?.id_matriz && (
+                        <div className="pt-3 border-t">
+                          <Label className="text-[9px] uppercase font-black opacity-40 leading-none">Vinculada à Matriz</Label>
+                          <div 
+                             className="flex items-center gap-2 mt-2 p-2 rounded-lg hover:bg-primary/5 cursor-pointer border border-transparent hover:border-primary/20 transition-all group"
+                             onClick={() => openView(matrizesList.find(m => m.id_empresa === selectedEmpresa.id_matriz))}
+                          >
+                             <div className="bg-primary/10 p-1.5 rounded"><Building2 className="w-4 h-4 text-primary" /></div>
+                             <span className="text-sm font-semibold group-hover:text-primary transition-colors truncate">
+                               {matrizesList.find(m => m.id_empresa === selectedEmpresa.id_matriz)?.nome}
+                             </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="parcerias" className="mt-0 space-y-8 focus-visible:ring-0 outline-none">
+                <div className="space-y-4">
+                  <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                    <Handshake className="w-3 h-3" /> Programa Formação
+                  </h4>
+                  {selectedEmpresa?.formacao?.plano ? (
+                    <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 relative overflow-hidden group shadow-sm hover:shadow-lg transition-all duration-300">
+                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <Handshake className="w-24 h-24 text-primary -rotate-12" />
+                      </div>
+                      <div className="relative space-y-6">
+                         <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                               <Badge className="bg-primary hover:bg-primary/90 shadow-md mb-2 px-3 h-6 uppercase tracking-widest text-[11px] font-black">{selectedEmpresa.formacao.plano.nome}</Badge>
+                               <p className="text-xs text-muted-foreground">Inscrito no programa de apoio corporativo</p>
+                            </div>
+                            <div className="text-right">
+                               <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 uppercase text-[10px] font-black h-7 px-4 shadow-sm">{selectedEmpresa.formacao.status}</Badge>
+                            </div>
+                         </div>
+                         
+                         <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-background/80 backdrop-blur-sm rounded-xl p-4 border border-border shadow-sm group-hover:border-primary/30 transition-colors">
+                               <p className="text-[9px] uppercase font-black opacity-50 mb-1">Desconto em Módulos</p>
+                               <div className="flex items-end gap-1.5">
+                                  <span className="text-3xl font-black text-primary leading-none">{Number(selectedEmpresa.formacao.plano.desconto_adicional).toFixed(0)}%</span>
+                                  <span className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-tighter">Adicional</span>
+                               </div>
+                            </div>
+                            <div className="bg-background/80 backdrop-blur-sm rounded-xl p-4 border border-border shadow-sm group-hover:border-primary/30 transition-colors">
+                               <p className="text-[9px] uppercase font-black opacity-50 mb-1">Vagas de Bônus</p>
+                               <div className="flex items-end gap-1.5">
+                                  <span className="text-3xl font-black text-primary leading-none">{selectedEmpresa.formacao.plano.vagas_gratuitas}</span>
+                                  <span className="text-[10px] font-bold text-muted-foreground mb-1 uppercase tracking-tighter">Gratuitas p/ Mês</span>
+                               </div>
+                            </div>
+                         </div>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <div className="bg-muted/30 border border-dashed border-border rounded-xl p-10 text-center group cursor-pointer hover:bg-muted/50 transition-colors">
+                      <Handshake className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3 group-hover:scale-110 transition-transform" />
+                      <h5 className="text-sm font-bold text-muted-foreground">Sem Plano de Formação</h5>
+                      <p className="text-xs text-muted-foreground/60 mt-1 max-w-[240px] mx-auto">Vincule esta empresa ao Programa Formação para liberar descontos progressivos.</p>
+                    </div>
+                  )}
+
+                  <div className="pt-4 space-y-4">
+                    <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                       <Percent className="w-3 h-3" /> Convênios e Parcerias Ativas
+                    </h4>
+                    {selectedRegularParcerias.length === 0 ? (
+                      <div className="bg-background border border-border/60 rounded-xl p-5 shadow-sm min-h-[80px] flex flex-col items-center justify-center border-dashed">
+                          <Handshake className="w-6 h-6 text-muted-foreground/20 mb-2" />
+                          <p className="text-xs text-muted-foreground italic">Nenhum convênio adicional.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {selectedRegularParcerias.map(p => (
+                          <div key={p.id_parceria} className="bg-background border border-border/60 rounded-xl p-3 flex items-center gap-3 shadow-sm">
+                             <div className="bg-primary/5 p-2 rounded-lg text-primary"><Percent className="w-4 h-4" /></div>
+                             <div className="min-w-0">
+                                <p className="text-xs font-bold truncate leading-tight">{p.nome}</p>
+                                <p className="text-[10px] text-muted-foreground uppercase font-black">{p.desconto}% de benefício</p>
+                             </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="pt-2 flex justify-center">
+                       <Button variant="link" className="h-6 text-[10px] uppercase font-black text-primary opacity-60 hover:opacity-100" onClick={() => openEdit(selectedEmpresa)}>Gerenciar Parcerias</Button>
+                    </div>
+                  </div>
                 </div>
-              )}
+              </TabsContent>
+
+              <TabsContent value="alunos" className="mt-0 space-y-5 focus-visible:ring-0 outline-none">
+                <div className="flex items-center justify-between sticky top-0 bg-transparent z-10 py-1">
+                   <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                     <UserRound className="w-3 h-3" /> Quadro de Alunos
+                   </h4>
+                   <Badge variant="outline" className="h-5 text-[10px] font-black uppercase bg-primary/10 text-primary border-none">
+                     {alunosEmpresa.filter(a => a.nome.toLowerCase().includes(alunosSearch.toLowerCase())).length} Resultados
+                   </Badge>
+                </div>
+
+                <div className="relative">
+                   <SearchInput 
+                      placeholder="Pesquisar aluno nesta empresa..." 
+                      value={alunosSearch} 
+                      onChange={(e) => setAlunosSearch(e.target.value)}
+                      className="bg-muted/30 border-none h-10 text-xs px-10"
+                   />
+                </div>
+                
+                {isLoadingAlunosEmpresa ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-3">
+                    <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest animate-pulse">Sincronizando Alunos...</p>
+                  </div>
+                ) : alunosEmpresa.length === 0 ? (
+                  <div className="bg-muted/20 border border-dashed border-border rounded-2xl p-12 text-center">
+                     <div className="bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-border/60">
+                        <UserRound className="w-8 h-8 text-muted-foreground/30" />
+                     </div>
+                     <p className="text-sm font-bold text-muted-foreground">Nenhum aluno encontrado.</p>
+                     <p className="text-xs text-muted-foreground/60 mt-1">Os alunos vinculados a esta empresa aparecem aqui automaticamente.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {alunosEmpresa
+                      .filter(a => a.nome.toLowerCase().includes(alunosSearch.toLowerCase()) || (a.cpf && a.cpf.includes(alunosSearch)))
+                      .map(aluno => (
+                      <div key={aluno.id_aluno || aluno.id_colaborador} className="bg-background border border-border/80 rounded-xl p-4 hover:shadow-md hover:border-primary/50 transition-all flex items-center gap-4 group">
+                        <div className="bg-primary/10 p-2.5 rounded-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                           <UserRound className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 pr-2">
+                          <p className="text-sm font-bold truncate text-foreground group-hover:text-primary transition-colors">{aluno.nome}</p>
+                          <div className="flex flex-col">
+                             <p className="text-[10px] text-muted-foreground uppercase font-black truncate tracking-tighter opacity-70 mb-0.5">{aluno.cargo || "Dono / Gestor"}</p>
+                             <p className="text-[9px] font-mono text-muted-foreground/60">{formatCPF(aluno.cpf)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="contatos" className="mt-0 space-y-5 focus-visible:ring-0 outline-none">
+                <div className="flex items-center justify-between sticky top-0 bg-transparent z-10 py-1">
+                   <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
+                     <Phone className="w-3 h-3" /> Gestores e Responsáveis
+                   </h4>
+                   <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs font-bold bg-primary/5 hover:bg-primary hover:text-primary-foreground transition-all" onClick={() => openCreateContact(selectedEmpresa.id_empresa, true)}>
+                      <Plus className="w-3.5 h-3.5" /> Vincular Novo
+                   </Button>
+                </div>
+
+                <div className="relative">
+                   <SearchInput 
+                      placeholder="Pesquisar por nome ou setor..." 
+                      value={contatosSearch} 
+                      onChange={(e) => setContatosSearch(e.target.value)}
+                      className="bg-muted/30 border-none h-10 text-xs px-10"
+                   />
+                </div>
+
+                {selectedEmpresaContacts.length === 0 ? (
+                  <div 
+                    className="bg-muted/20 border border-dashed border-border rounded-2xl p-12 text-center group cursor-pointer hover:bg-muted/40 transition-colors" 
+                    onClick={() => openCreateContact(selectedEmpresa.id_empresa, true)}
+                  >
+                     <div className="bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-border/60 group-hover:scale-110 transition-transform">
+                        <UserRound className="w-8 h-8 text-muted-foreground/30" />
+                     </div>
+                     <p className="text-sm font-bold text-muted-foreground">O Quadro de Contatos está vazio</p>
+                     <p className="text-xs text-primary font-black uppercase mt-2 group-hover:underline">Adicionar Primeiro Responsável</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedEmpresaContacts
+                      .filter(c => c.nome.toLowerCase().includes(contatosSearch.toLowerCase()) || (c.setor && c.setor.toLowerCase().includes(contatosSearch.toLowerCase())))
+                      .map(c => (
+                      <div key={c.id_contato} className="bg-background border border-border/80 rounded-2xl p-5 flex items-center justify-between group hover:shadow-lg hover:border-primary/40 transition-all duration-300">
+                        <div className="flex items-center gap-5">
+                           <div className="bg-primary/5 p-3 rounded-full group-hover:bg-primary/10 transition-colors">
+                              <Mail className="w-6 h-6 text-primary/60" />
+                           </div>
+                           <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <p className="font-black text-sm text-foreground">{c.nome}</p>
+                                <Badge variant="secondary" className="h-4 text-[9px] font-black uppercase items-center px-1.5">{c.setor || "Diretoria"}</Badge>
+                              </div>
+                              <div className="flex items-center gap-5 mt-1.5">
+                                 {c.telefone && <p className="text-xs text-muted-foreground font-medium flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary/40" /> {c.telefone}</p>}
+                                 {c.email && <p className="text-xs text-primary/70 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"><Mail className="w-3.5 h-3.5" /> {c.email}</p>}
+                              </div>
+                           </div>
+                        </div>
+                        <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity translate-x-2 group-hover:translate-x-0">
+                           <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => openEditContact(c)}>
+                              <Pencil className="w-4 h-4" />
+                           </Button>
+                           <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => openDeleteContact(c.id_contato)}>
+                              <Trash2 className="w-4 h-4" />
+                           </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
             </div>
+          </Tabs>
+          
+          <div className="bg-muted/30 px-6 py-4 border-t flex justify-end">
+             <Button variant="outline" size="sm" onClick={() => setViewOverlayOpen(false)} className="h-9 font-bold text-xs uppercase tracking-tight text-muted-foreground hover:bg-background">Fechar Visualização</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1028,67 +1301,117 @@ export function Empresas() {
               </div>
             </div>
 
-            {/* ── Parcerias ─────────────────────────────────────────────────── */}
-            <div className="space-y-3">
-              <div>
-                <Label>Parcerias</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">Vincule esta empresa às parcerias existentes. Múltiplas seleções permitidas.</p>
-              </div>
-              <div className="relative" ref={parceriaSearchRef}>
-                <div className="flex items-center border border-input rounded-md bg-background px-3 gap-2">
-                  <Handshake className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <input
-                    className="flex-1 py-2 text-sm outline-none bg-transparent placeholder:text-muted-foreground"
-                    placeholder="Pesquisar parceria por nome..."
-                    value={parceriaSearch}
-                    onChange={(e) => { setParceriaSearch(e.target.value); setShowParceriaDropdown(true); }}
-                    onFocus={() => setShowParceriaDropdown(true)}
-                  />
+            {/* ── Parcerias e Convênios ────────────────────────────────────────── */}
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Handshake className="w-4 h-4 text-primary" /> Parcerias e Convênios
+                  </h3>
                 </div>
-                {showParceriaDropdown && parceriaSearch.length > 0 && (
-                  <div className="absolute z-50 top-full mt-1 w-full bg-popover border border-border rounded-md shadow-lg max-h-44 overflow-y-auto">
-                    {filteredParceriaSearch.length === 0 ? (
-                      <p className="text-sm text-muted-foreground p-3">Nenhuma parceria encontrada.</p>
-                    ) : filteredParceriaSearch.map((p) => (
-                      <button
-                        key={p.id_parceria}
-                        type="button"
-                        className="w-full text-left px-4 py-2.5 hover:bg-accent transition-colors flex items-center gap-3"
-                        onClick={() => addParceriaToForm(p)}
-                      >
-                        <Handshake className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                        <span className="flex-1 text-sm font-medium">{p.nome}</span>
-                        <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 text-xs gap-1">
-                          <Percent className="w-3 h-3" />{Number(p.desconto).toFixed(0)}%
-                        </Badge>
-                        <Plus className="w-4 h-4 text-primary" />
-                      </button>
-                    ))}
+                
+                {/* Programa Formação Toggle & Selection */}
+                <div className="bg-primary/5 rounded-xl border border-primary/10 overflow-hidden shadow-sm">
+                  <div className="p-4 flex items-center justify-between bg-primary/10 border-b border-primary/10">
+                    <div className="flex items-center gap-3">
+                      <Checkbox 
+                        id="formacao_toggle" 
+                        checked={showFormacao} 
+                        onCheckedChange={(val) => setShowFormacao(val === true)}
+                      />
+                      <div>
+                        <Label htmlFor="formacao_toggle" className="font-bold text-primary cursor-pointer">Programa Formação</Label>
+                        <p className="text-[10px] text-primary/70 uppercase font-black tracking-widest mt-0.5">Benefícios Exclusivos</p>
+                      </div>
+                    </div>
                   </div>
-                )}
+
+                  {showFormacao && (
+                    <div className="p-4 bg-background/50">
+                      {!formData.isMatriz && formData.id_matriz !== "null" ? (
+                        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-lg p-3">
+                          <div className="flex items-start gap-3">
+                            <Building2 className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5" />
+                            <div>
+                              <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-tight">Herança de Matriz</p>
+                              <p className="text-[11px] text-amber-700/80 dark:text-amber-400/60 mt-1">
+                                Esta filial herda automaticamente o plano da matriz:
+                                <Badge variant="outline" className="ml-1.5 h-5 bg-amber-100/50 dark:bg-amber-900/30 border-amber-200 text-amber-900 dark:text-amber-300 font-black uppercase text-[9px]">
+                                  {empresas.find(e => e.id_empresa === formData.id_matriz)?.formacao?.plano?.nome || "Plano Indefinido"}
+                                </Badge>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          {allParcerias.map((plano) => {
+                            const isSelected = selectedParcerias[0]?.id_parceria === plano.id_parceria;
+                            return (
+                              <button
+                                key={plano.id_parceria}
+                                type="button"
+                                onClick={() => setSelectedParcerias([plano])}
+                                className={cn(
+                                  "relative flex flex-col text-left p-3 rounded-lg border transition-all duration-200",
+                                  isSelected 
+                                    ? "border-primary bg-primary/5 ring-1 ring-primary shadow-sm" 
+                                    : "border-border/60 bg-card hover:border-primary/40 hover:bg-muted/30"
+                                )}
+                              >
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-[11px] font-black uppercase tracking-tight">{plano.nome}</span>
+                                  {isSelected && <CheckCircle2 className="w-3 h-3 text-primary" />}
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1 text-[9px] text-muted-foreground font-bold opacity-80">
+                                    <Percent className="w-2.5 h-2.5" /> {Number(plano.desconto_adicional || 0).toFixed(0)}% Off
+                                  </div>
+                                  <div className="flex items-center gap-1 text-[9px] text-muted-foreground font-bold opacity-80">
+                                    <Plus className="w-2.5 h-2.5" /> {plano.vagas_gratuitas || 0} Vagas
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Regular Partnerships */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Outras Parcerias / Convênios</Label>
+                    <Badge variant="outline" className="text-[10px] opacity-60">{selectedRegularParcerias.length} Selecionados</Badge>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {regularParcerias.map(p => {
+                        const isSelected = selectedRegularParcerias.some(s => s.id_parceria === p.id_parceria);
+                        return (
+                            <div 
+                                key={p.id_parceria}
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer transition-colors",
+                                    isSelected ? "border-primary/40 bg-primary/5" : "border-border bg-muted/20 hover:bg-muted/40"
+                                )}
+                                onClick={() => {
+                                    if (isSelected) setSelectedRegularParcerias(prev => prev.filter(s => s.id_parceria !== p.id_parceria));
+                                    else setSelectedRegularParcerias(prev => [...prev, p]);
+                                }}
+                            >
+                                <Checkbox checked={isSelected} />
+                                <div className="min-w-0">
+                                    <p className="text-xs font-medium truncate">{p.nome}</p>
+                                    <p className="text-[9px] text-muted-foreground">{p.desconto}% desc.</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                  </div>
+                </div>
               </div>
-              {selectedParcerias.length > 0 ? (
-                <div className="flex flex-wrap gap-2 border border-dashed border-border rounded-lg p-3 min-h-[52px]">
-                  {selectedParcerias.map((p) => (
-                    <Badge key={p.id_parceria} variant="secondary" className="gap-1.5 pr-1.5 text-sm h-7">
-                      <Handshake className="w-3.5 h-3.5" />
-                      {p.nome}
-                      <span className="text-xs opacity-60">{Number(p.desconto).toFixed(0)}%</span>
-                      <button
-                        type="button"
-                        onClick={() => removeParceriaFromForm(p.id_parceria)}
-                        className="ml-0.5 rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-dashed border-border rounded-lg p-3 text-center text-sm text-muted-foreground">
-                  Nenhuma parceria selecionada.
-                </div>
-              )}
             </div>
 
             {/* ── Contatos Inline ───────────────────────────────────────────── */}
