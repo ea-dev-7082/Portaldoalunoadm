@@ -64,6 +64,7 @@ import {
   Building,
   UserMinus,
   X,
+  Settings,
 } from "lucide-react";
 import { SearchInput } from "../components/ui/search-input";
 import { MultiSelectFilter } from "../components/MultiSelectFilter";
@@ -83,6 +84,39 @@ import {
 import { ScrollArea } from "../components/ui/scroll-area";
 
 import React from "react";
+
+// Converte número para algarismo romano (1→I, 2→II, etc.)
+function toRoman(n: number): string {
+  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+  const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+  let result = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (n >= vals[i]) { result += syms[i]; n -= vals[i]; }
+  }
+  return result;
+}
+
+// Label de exibição de um módulo
+function moduloLabel(index: number, nome?: string): string {
+  const base = `Módulo ${toRoman(index + 1)}`;
+  return nome?.trim() ? `${base} — ${nome.trim()}` : base;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+async function getAuthHeader() {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  
+  const headers: Record<string, string> = {
+    "apikey": publicAnonKey || ""
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  return headers;
+}
 
 interface Training {
   id: string;
@@ -119,11 +153,53 @@ export function Treinamentos() {
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Global Settings State
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [globalConfig, setGlobalConfig] = useState({
+    nota_minima_modulo: 7,
+    nota_minima_curso: 7,
+    presenca_minima_porcentagem: 75,
+    minutos_tolerancia_atraso: 15
+  });
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      const hdrs = await getAuthHeader();
+      const res = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=config", { headers: hdrs });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.id) {
+          setGlobalConfig({
+            nota_minima_modulo: data.nota_minima_modulo,
+            nota_minima_curso: data.nota_minima_curso,
+            presenca_minima_porcentagem: data.presenca_minima_porcentagem,
+            minutos_tolerancia_atraso: data.minutos_tolerancia_atraso,
+          });
+        }
+      }
+    } catch(err) {
+      console.error("fetchConfig error", err);
+    }
+  }, []);
+
+  const handleSaveConfig = async () => {
+    try {
+      const authHdrs = await getAuthHeader();
+      const hdrs = { ...authHdrs, "Content-Type": "application/json" };
+      await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=config", {
+        method: "PATCH",
+        headers: hdrs,
+        body: JSON.stringify(globalConfig)
+      });
+      setSettingsOpen(false);
+    } catch(err) {
+      console.error("Save config error", err);
+    }
+  };
+
   const fetchTrainings = useCallback(async () => {
     try {
-      const headers = { 
-        "apikey": publicAnonKey || ""
-      };
+      const headers = await getAuthHeader();
       const response = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud", { headers });
       
       if (!response.ok) {
@@ -142,7 +218,7 @@ export function Treinamentos() {
         time: t.data_inicio ? `${new Date(t.data_inicio).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Não definido",
         status: t.status || "Agendado",
         participants: t.students ? t.students.length : 0, 
-        modulo: t.modules && t.modules.length > 0 ? `Modulo ${t.modules[0].ordem + 1}` : "N/A",
+        modulo: t.modules && t.modules.length > 0 ? moduloLabel(0, t.modules[0].modulo?.nome) : "N/A",
         stats: { 
           empresas: t.companies ? t.companies.length : 0, 
           gruposEconomicos: 0, 
@@ -160,9 +236,7 @@ export function Treinamentos() {
 
   const fetchCompanies = useCallback(async () => {
     try {
-      const headers = { 
-        "apikey": publicAnonKey || ""
-      };
+      const headers = await getAuthHeader();
       const resComp = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/empresas-crud", { headers });
       
       if (!resComp.ok) {
@@ -181,9 +255,7 @@ export function Treinamentos() {
 
   const fetchStudents = useCallback(async () => {
     try {
-      const headers = { 
-        "apikey": publicAnonKey || ""
-      };
+      const headers = await getAuthHeader();
       const resAlu = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/alunos-crud", { headers });
 
       if (!resAlu.ok) {
@@ -206,6 +278,7 @@ export function Treinamentos() {
     try {
       // Procedemos diretamente sem aguardar sessão, usando publicAnonKey nos headers
       await Promise.all([
+        fetchConfig(),
         fetchTrainings(),
         fetchCompanies(),
         fetchStudents()
@@ -278,10 +351,12 @@ export function Treinamentos() {
   const [isTrainingDirty, setIsTrainingDirty] = useState(false);
   const [discardTrainingOpen, setDiscardTrainingOpen] = useState(false);
   const [saveTrainingConfirmOpen, setSaveTrainingConfirmOpen] = useState(false);
+  const [confirmDeleteTrainingOpen, setConfirmDeleteTrainingOpen] = useState(false);
   const [trainingData, setTrainingData] = useState({
     name: "",
     description: "",
     status: "Agendado",
+    carga_horaria: "" as number | "",
     startDate: "",
     endDate: "",
     partnership: "venda-direta",
@@ -289,7 +364,32 @@ export function Treinamentos() {
     students: [] as string[],
     companies: [] as string[]
   });
-  const [trainingModules, setTrainingModules] = useState([{ id: "1", name: "Módulo 1", description: "" }]);
+  interface ModuloParte {
+    ordem: number;
+    data_aula: string;
+    hora_inicio: string;
+  }
+  interface TrainingModule {
+    id: string;
+    name: string;         // nome personalizado (opcional)
+    description: string;
+    data_aula: string;    // para módulo de parte única
+    hora_inicio: string;  // para módulo de parte única
+    hora_fim: string;
+    duracao_minutos: number | "";
+    aulas: ModuloParte[];
+  }
+  const emptyModule = (n: number): TrainingModule => ({
+    id: `temp-${Date.now()}-${n}`,
+    name: "",
+    description: "",
+    data_aula: "",
+    hora_inicio: "",
+    hora_fim: "",
+    duracao_minutos: "",
+    aulas: [],
+  });
+  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
   const [activeTab, setActiveTab] = useState("1");
   const [studentModalCompanyFilter, setStudentModalCompanyFilter] = useState("todas");
   
@@ -394,6 +494,7 @@ export function Treinamentos() {
       name: raw.nome,
       description: raw.descricao || "",
       status: raw.status || "Agendado",
+      carga_horaria: raw.carga_horaria || "",
       startDate: formatForDateTimeLocal(raw.data_inicio),
       endDate: formatForDateTimeLocal(raw.data_fim),
       partnership: "venda-direta", 
@@ -404,12 +505,23 @@ export function Treinamentos() {
 
     if (raw.modules && raw.modules.length > 0) {
       setTrainingModules(raw.modules.map((m: any) => ({
-        id: m.id_treinamento_modulo,
-        name: m.modulo?.nome || "Módulo",
-        description: m.conteudo || ""
+        id: m.id_modulo || `temp-${Date.now()}-${m.ordem}`,
+        name: m.modulo?.nome || "",
+        description: m.modulo?.descricao || "",
+        data_aula: m.data_aula || "",
+        hora_inicio: m.hora_inicio || "",
+        hora_fim: m.hora_fim || "",
+        duracao_minutos: m.duracao_minutos || "",
+        aulas: (m.aulas ?? m.partes ?? []).map((p: any) => ({
+          ordem: p.ordem,
+          data_aula: p.data_aula || "",
+          hora_inicio: p.hora_inicio || "",
+          hora_fim: p.hora_fim || "",
+          duracao_minutos: p.duracao_minutos || "",
+        })),
       })));
     } else {
-      setTrainingModules([{ id: "1", name: "Módulo 1", description: "" }]);
+      setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
     }
     
     setAddTrainingOpen(true);
@@ -426,6 +538,7 @@ export function Treinamentos() {
       name: "",
       description: "",
       status: "Agendado",
+      carga_horaria: "",
       startDate: "",
       endDate: "",
       partnership: "venda-direta",
@@ -453,10 +566,9 @@ export function Treinamentos() {
   };
 
   const handleAddModule = () => {
-    const newId = `temp-${Date.now()}`;
-    const newCount = trainingModules.length + 1;
-    setTrainingModules([...trainingModules, { id: newId, name: `Módulo ${newCount}`, description: "" }]);
-    setActiveTab(newId);
+    const m = emptyModule(trainingModules.length + 1);
+    setTrainingModules([...trainingModules, m]);
+    setActiveTab(m.id);
     setIsTrainingDirty(true);
   };
   
@@ -484,6 +596,7 @@ export function Treinamentos() {
       name: "", 
       description: "", 
       status: "Agendado",
+      carga_horaria: "",
       startDate: "",
       endDate: "",
       partnership: "venda-direta",
@@ -492,7 +605,7 @@ export function Treinamentos() {
       companies: []
     });
     setEditingTrainingId(null);
-    setTrainingModules([{ id: "1", name: "Módulo 1", description: "" }]);
+    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
     setIsTrainingDirty(false);
     setActiveTab("1");
     setStudentModalCompanyFilter("todas");
@@ -508,6 +621,38 @@ export function Treinamentos() {
     setSaveTrainingConfirmOpen(true);
   };
 
+  const handleConfirmDeleteTraining = () => {
+    setConfirmDeleteTrainingOpen(true);
+  };
+
+  const confirmDeleteTraining = async () => {
+    if (!editingTrainingId) return;
+    
+    setIsLoading(true);
+    try {
+      const authHdrs = await getAuthHeader();
+      const res = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?id=${editingTrainingId}`, {
+        method: "DELETE",
+        headers: authHdrs,
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Erro ao excluir treinamento");
+      }
+
+      setConfirmDeleteTrainingOpen(false);
+      setAddTrainingOpen(false);
+      resetTrainingForm();
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Erro ao excluir treinamento");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const confirmSaveTraining = async () => {
     setIsLoading(true);
     try {
@@ -515,13 +660,19 @@ export function Treinamentos() {
         nome: trainingData.name,
         descricao: trainingData.description,
         status: trainingData.status,
+        carga_horaria: trainingData.carga_horaria || null,
         data_inicio: trainingData.startDate || null,
         data_fim: trainingData.endDate || null,
         modules: trainingModules.map((m, index) => ({
-          id_modulo: (m.id && m.id.length > 10) ? m.id : null, 
-          nome: m.name,
-          descricao: m.description,
-          ordem: index
+          id_modulo: (m.id && m.id.length > 10) ? m.id : null,
+          nome: m.name.trim() || null,
+          descricao: m.description || null,
+          ordem: index,
+          data_aula: m.data_aula || null,
+          hora_inicio: m.hora_inicio || null,
+          hora_fim: m.hora_fim || null,
+          duracao_minutos: m.duracao_minutos || null,
+          aulas: m.aulas,
         })),
         companies: trainingData.companies,
         students: trainingData.students
@@ -530,11 +681,12 @@ export function Treinamentos() {
       const method = editingTrainingId ? "PUT" : "POST";
       const url = `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud${editingTrainingId ? `?id=${editingTrainingId}` : ""}`;
 
+      const authHdrs = await getAuthHeader();
       const res = await fetch(url, {
         method,
         headers: {
+          ...authHdrs,
           "Content-Type": "application/json",
-          "apikey": publicAnonKey || "",
         },
         body: JSON.stringify(payload)
       });
@@ -577,10 +729,15 @@ export function Treinamentos() {
           <h1 className="text-3xl font-bold text-foreground">Treinamentos e Materiais</h1>
           <p className="text-muted-foreground mt-1">Gerencie treinamentos, materiais e recursos</p>
         </div>
-        <Button className="gap-2" onClick={() => setAddTrainingOpen(true)}>
-          <Plus className="w-4 h-4" />
-          Adicionar Treinamento
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
+            <Settings className="w-5 h-5 text-muted-foreground" />
+          </Button>
+          <Button className="gap-2" onClick={() => setAddTrainingOpen(true)}>
+            <Plus className="w-4 h-4" />
+            Adicionar Treinamento
+          </Button>
+        </div>
       </div>
 
       {/* Trainings Section */}
@@ -1143,6 +1300,18 @@ export function Treinamentos() {
                   }}
                 />
               </div>
+              <div className="space-y-2 col-span-2 lg:col-span-1">
+                <Label>Carga Horária (h)</Label>
+                <Input
+                  type="number"
+                  placeholder="Ex: 40"
+                  value={trainingData.carga_horaria}
+                  onChange={(e) => {
+                    setTrainingData({ ...trainingData, carga_horaria: e.target.value ? Number(e.target.value) : "" });
+                    setIsTrainingDirty(true);
+                  }}
+                />
+              </div>
               <div className="space-y-2 col-span-2">
                 <Label>Descrição</Label>
                 <Textarea
@@ -1181,7 +1350,7 @@ export function Treinamentos() {
                             value={mod.id}
                             className="flex items-center gap-2 py-2 px-4 data-[state=active]:bg-background"
                           >
-                            Módulo {index + 1}
+                            Módulo {toRoman(index + 1)}
                             {trainingModules.length > 1 && (
                               <span
                                 role="button"
@@ -1207,39 +1376,247 @@ export function Treinamentos() {
                         ))}
                       </TabsList>
                     </ScrollArea>
-                    
+
                     {trainingModules.map((mod, index) => (
                       <TabsContent key={mod.id} value={mod.id} className="space-y-4">
-                        <Card className="p-4 border shadow-sm">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2 col-span-2">
-                              <Label>Nome do Módulo</Label>
-                              <Input
-                                placeholder={`Ex: Introdução ao Módulo ${mod.id}`}
-                                value={mod.name}
-                                onChange={(e) => {
-                                  const newModules = [...trainingModules];
-                                  newModules[index].name = e.target.value;
-                                  setTrainingModules(newModules);
-                                  setIsTrainingDirty(true);
-                                }}
-                              />
-                            </div>
-                            <div className="space-y-2 col-span-2">
-                              <Label>Descrição do Módulo</Label>
-                              <Textarea
-                                placeholder="Descreva o tema deste módulo específico..."
-                                value={mod.description}
-                                onChange={(e) => {
-                                  const newModules = [...trainingModules];
-                                  newModules[index].description = e.target.value;
-                                  setTrainingModules(newModules);
-                                  setIsTrainingDirty(true);
-                                }}
-                                className="min-h-[100px]"
-                              />
-                            </div>
+                        <Card className="p-4 border shadow-sm space-y-5">
+
+                          {/* Preview do label */}
+                          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <span className="text-xs text-muted-foreground">Label exibido:</span>
+                            <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">
+                              {moduloLabel(index, mod.name)}
+                            </span>
                           </div>
+
+                          {/* Nome opcional */}
+                          <div className="space-y-1.5">
+                            <Label>Nome do Módulo <span className="text-muted-foreground font-normal text-xs">(opcional)</span></Label>
+                            <Input
+                              placeholder={`Ex: Introdução, Avançado... (se vazio, exibe apenas "Módulo ${toRoman(index + 1)}")`}
+                              value={mod.name}
+                              onChange={(e) => {
+                                const m = [...trainingModules];
+                                m[index] = { ...m[index], name: e.target.value };
+                                setTrainingModules(m);
+                                setIsTrainingDirty(true);
+                              }}
+                            />
+                          </div>
+
+                          {/* Descrição */}
+                          <div className="space-y-1.5">
+                            <Label>Descrição do Módulo <span className="text-muted-foreground font-normal text-xs">(visível apenas nos treinamentos)</span></Label>
+                            <Textarea
+                              placeholder="Descreva o tema deste módulo específico..."
+                              value={mod.description}
+                              onChange={(e) => {
+                                const m = [...trainingModules];
+                                m[index] = { ...m[index], description: e.target.value };
+                                setTrainingModules(m);
+                                setIsTrainingDirty(true);
+                              }}
+                              className="min-h-[80px]"
+                            />
+                          </div>
+
+                          {/* Data e hora (apenas se não tiver aulas) */}
+                          {mod.aulas.length === 0 && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1 border-t">
+                              <div className="space-y-1.5">
+                                <Label className="flex items-center gap-1.5 text-xs"><Calendar className="w-3.5 h-3.5" />Data</Label>
+                                <Input
+                                  type="date"
+                                  value={mod.data_aula}
+                                  onChange={(e) => {
+                                    const m = [...trainingModules];
+                                    m[index] = { ...m[index], data_aula: e.target.value };
+                                    setTrainingModules(m);
+                                    setIsTrainingDirty(true);
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="flex items-center gap-1.5 text-xs"><Clock className="w-3.5 h-3.5" />Início</Label>
+                                <Input
+                                  type="time"
+                                  value={mod.hora_inicio}
+                                  onChange={(e) => {
+                                    const m = [...trainingModules];
+                                    m[index] = { ...m[index], hora_inicio: e.target.value };
+                                    setTrainingModules(m);
+                                    setIsTrainingDirty(true);
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="flex items-center gap-1.5 text-xs"><Clock className="w-3.5 h-3.5" />Fim</Label>
+                                <Input
+                                  type="time"
+                                  value={mod.hora_fim}
+                                  onChange={(e) => {
+                                    const m = [...trainingModules];
+                                    m[index] = { ...m[index], hora_fim: e.target.value };
+                                    setTrainingModules(m);
+                                    setIsTrainingDirty(true);
+                                  }}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="flex items-center gap-1.5 text-xs">Duração(min)</Label>
+                                <Input
+                                  type="number"
+                                  value={mod.duracao_minutos}
+                                  onChange={(e) => {
+                                    const m = [...trainingModules];
+                                    m[index] = { ...m[index], duracao_minutos: e.target.value ? Number(e.target.value) : "" };
+                                    setTrainingModules(m);
+                                    setIsTrainingDirty(true);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Seção de Aulas */}
+                          <div className="border-t pt-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <Label className="text-base font-semibold">Aulas do Módulo</Label>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {mod.aulas.length === 0
+                                    ? 'Sem aulas múltiplas — data e horário definidos acima'
+                                    : `${mod.aulas.length} aula(s) — cada uma com data e horário próprios`}
+                                </p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="gap-1.5"
+                                onClick={() => {
+                                  const m = [...trainingModules];
+                                  m[index] = {
+                                    ...m[index],
+                                    data_aula: "",
+                                    hora_inicio: "",
+                                    hora_fim: "",
+                                    duracao_minutos: "",
+                                    aulas: [
+                                      ...m[index].aulas,
+                                      { ordem: m[index].aulas.length, data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "" },
+                                    ],
+                                  };
+                                  setTrainingModules(m);
+                                  setIsTrainingDirty(true);
+                                }}
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                Adicionar Aula
+                              </Button>
+                            </div>
+
+                            {mod.aulas.length > 0 && (
+                              <div className="space-y-2">
+                                {mod.aulas.map((aula, pi) => (
+                                  <div
+                                    key={pi}
+                                    className="flex items-end gap-3 bg-muted/30 rounded-lg px-3 py-3 border flex-wrap"
+                                  >
+                                    <span className="text-sm font-semibold text-muted-foreground w-16 shrink-0 pb-1">
+                                      Aula {toRoman(pi + 1)}
+                                    </span>
+                                    <div className="flex-1 min-w-[120px] space-y-1">
+                                      <Label className="text-xs">Data</Label>
+                                      <Input
+                                        type="date"
+                                        value={aula.data_aula}
+                                        onChange={(e) => {
+                                          const m = [...trainingModules];
+                                          const aulas = [...m[index].aulas];
+                                          aulas[pi] = { ...aulas[pi], data_aula: e.target.value };
+                                          m[index] = { ...m[index], aulas };
+                                          setTrainingModules(m);
+                                          setIsTrainingDirty(true);
+                                        }}
+                                        className="h-8 text-sm"
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-[120px] space-y-1">
+                                      <Label className="text-xs">Início</Label>
+                                      <Input
+                                        type="time"
+                                        value={aula.hora_inicio}
+                                        onChange={(e) => {
+                                          const m = [...trainingModules];
+                                          const aulas = [...m[index].aulas];
+                                          aulas[pi] = { ...aulas[pi], hora_inicio: e.target.value };
+                                          m[index] = { ...m[index], aulas };
+                                          setTrainingModules(m);
+                                          setIsTrainingDirty(true);
+                                        }}
+                                        className="h-8 text-sm"
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-[120px] space-y-1">
+                                      <Label className="text-xs">Fim</Label>
+                                      <Input
+                                        type="time"
+                                        value={aula.hora_fim}
+                                        onChange={(e) => {
+                                          const m = [...trainingModules];
+                                          const aulas = [...m[index].aulas];
+                                          aulas[pi] = { ...aulas[pi], hora_fim: e.target.value };
+                                          m[index] = { ...m[index], aulas };
+                                          setTrainingModules(m);
+                                          setIsTrainingDirty(true);
+                                        }}
+                                        className="h-8 text-sm"
+                                      />
+                                    </div>
+                                    <div className="flex-1 min-w-[120px] space-y-1">
+                                      <Label className="text-xs">Duração(min)</Label>
+                                      <Input
+                                        type="number"
+                                        value={aula.duracao_minutos}
+                                        onChange={(e) => {
+                                          const m = [...trainingModules];
+                                          const aulas = [...m[index].aulas];
+                                          aulas[pi] = { ...aulas[pi], duracao_minutos: e.target.value ? Number(e.target.value) : "" };
+                                          m[index] = { ...m[index], aulas };
+                                          setTrainingModules(m);
+                                          setIsTrainingDirty(true);
+                                        }}
+                                        className="h-8 text-sm"
+                                      />
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
+                                      onClick={() => {
+                                        const m = [...trainingModules];
+                                        const aulas = m[index].aulas.filter((_, i) => i !== pi)
+                                          .map((p, i) => ({ ...p, ordem: i }));
+                                        m[index] = { ...m[index], aulas };
+                                        // Se não sobrou aula, limpa campos
+                                        if (aulas.length === 0) {
+                                          m[index].data_aula = "";
+                                          m[index].hora_inicio = "";
+                                          m[index].hora_fim = "";
+                                          m[index].duracao_minutos = "";
+                                        }
+                                        setTrainingModules(m);
+                                        setIsTrainingDirty(true);
+                                      }}
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
                         </Card>
                       </TabsContent>
                     ))}
@@ -1438,11 +1815,25 @@ export function Treinamentos() {
               </Tabs>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCancelTraining}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSaveTraining}>{editingTrainingId ? 'Salvar Alterações' : 'Criar Treinamento'}</Button>
+          <DialogFooter className="flex flex-row items-center justify-between">
+            <div className="flex-1 text-left">
+              {editingTrainingId && (
+                <Button 
+                  variant="ghost" 
+                  onClick={handleConfirmDeleteTraining}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2 p-0 px-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Excluir treinamento
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleCancelTraining}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSaveTraining}>{editingTrainingId ? 'Salvar Alterações' : 'Criar Treinamento'}</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1478,6 +1869,32 @@ export function Treinamentos() {
             <AlertDialogCancel>Revisar form</AlertDialogCancel>
             <AlertDialogAction onClick={confirmSaveTraining}>
               Confirmar e Criar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm Delete Training */}
+      <AlertDialog open={confirmDeleteTrainingOpen} onOpenChange={setConfirmDeleteTrainingOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Excluir Treinamento
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a excluir permanentemente o treinamento "{trainingData.name}". 
+              Esta ação removerá todos os dados de presença, notas e vículos de alunos associados.
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDeleteTraining}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Sim, excluir treinamento
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1598,6 +2015,61 @@ export function Treinamentos() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configurações Gerais da Plataforma</DialogTitle>
+            <DialogDescription>
+              Ajuste as regras padrão. Elas serão aplicadas aos novos treinamentos que você criar a partir de agora.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Nota Mínima do Módulo</Label>
+              <Input 
+                type="number" 
+                step="0.1" 
+                value={globalConfig.nota_minima_modulo} 
+                onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_modulo: Number(e.target.value) })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Nota Mínima do Curso</Label>
+              <Input 
+                type="number" 
+                step="0.1" 
+                value={globalConfig.nota_minima_curso} 
+                onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_curso: Number(e.target.value) })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Presença Mínima (%)</Label>
+              <Input 
+                type="number" 
+                step="1" 
+                value={globalConfig.presenca_minima_porcentagem} 
+                onChange={(e) => setGlobalConfig({ ...globalConfig, presenca_minima_porcentagem: Number(e.target.value) })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Tempo de Tolerância para Atraso (min)</Label>
+              <Input 
+                type="number" 
+                step="1" 
+                value={globalConfig.minutos_tolerancia_atraso} 
+                onChange={(e) => setGlobalConfig({ ...globalConfig, minutos_tolerancia_atraso: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsOpen(false)}>Cancelar</Button>
+            <Button onClick={handleSaveConfig}>Salvar Definições</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

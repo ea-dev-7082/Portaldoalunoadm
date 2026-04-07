@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, Link, useLocation } from "react-router";
-import { Menu, Sun, Moon, X, LayoutDashboard, Building2, GraduationCap, Users } from "lucide-react";
+import { Menu, Sun, Moon, X, LayoutDashboard, Building2, GraduationCap, Users, Handshake } from "lucide-react";
 import { Button } from "./ui/button";
 import { ThemeProvider, useTheme } from "next-themes";
 
@@ -29,6 +29,7 @@ function LayoutContent() {
     { label: "Empresas", path: "/empresas", icon: Building2 },
     { label: "Treinamentos", path: "/treinamentos", icon: GraduationCap },
     { label: "Alunos", path: "/alunos", icon: Users },
+    { label: "Parcerias", path: "/parcerias", icon: Handshake },
   ];
 
   const isActive = (path: string) => {
