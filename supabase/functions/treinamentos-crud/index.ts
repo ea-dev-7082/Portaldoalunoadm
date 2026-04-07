@@ -58,6 +58,10 @@ Deno.serve(async (req) => {
             *,
             modules:treinamento_modulo (
               ordem,
+              data_aula,
+              hora_inicio,
+              hora_fim,
+              duracao_minutos,
               modulo:modulo (
                 *,
                 aulas:modulo_aula (*)
@@ -84,6 +88,10 @@ Deno.serve(async (req) => {
             *,
             modules:treinamento_modulo (
               ordem,
+              data_aula,
+              hora_inicio,
+              hora_fim,
+              duracao_minutos,
               modulo:modulo (
                 id_modulo, 
                 nome, 
@@ -162,9 +170,19 @@ Deno.serve(async (req) => {
       // Modules & Aulas
       if (modules && Array.isArray(modules)) {
         for (const [index, mod] of modules.entries()) {
-          const { data: newMod } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+          const { data: newMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+          if (nError) throw nError;
           if (newMod) {
-            await supabase.from("treinamento_modulo").insert({ id_treinamento: trainingId, id_modulo: newMod.id_modulo, ordem: index });
+            const { error: tmErr } = await supabase.from("treinamento_modulo").insert({ 
+              id_treinamento: trainingId, 
+              id_modulo: newMod.id_modulo, 
+              ordem: index,
+              data_aula: mod.data_aula || null,
+              hora_inicio: mod.hora_inicio || null,
+              hora_fim: mod.hora_fim || null,
+              duracao_minutos: mod.duracao_minutos || null
+            });
+            if (tmErr) throw tmErr;
 
             if (mod.aulas && Array.isArray(mod.aulas) && mod.aulas.length > 0) {
               const aulaInserts = mod.aulas.map((aula: any, ai: number) => ({
@@ -176,9 +194,10 @@ Deno.serve(async (req) => {
                 hora_fim: aula.hora_fim || null,
                 duracao_minutos: aula.duracao_minutos || 0
               }));
-              await supabase.from("modulo_aula").insert(aulaInserts);
+              const { error: aulaErr } = await supabase.from("modulo_aula").insert(aulaInserts);
+              if (aulaErr) throw aulaErr;
             } else {
-              await supabase.from("modulo_aula").insert({
+              const { error: aulaErr } = await supabase.from("modulo_aula").insert({
                 id_modulo: newMod.id_modulo,
                 id_treinamento: trainingId,
                 ordem: 1,
@@ -187,6 +206,7 @@ Deno.serve(async (req) => {
                 hora_fim: mod.hora_fim || null,
                 duracao_minutos: mod.duracao_minutos || 0
               });
+              if (aulaErr) throw aulaErr;
             }
           }
         }
@@ -230,14 +250,25 @@ Deno.serve(async (req) => {
         for (const [index, mod] of modules.entries()) {
           let modId = mod.id_modulo;
           if (!modId) {
-            const { data: nMod } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+            const { data: nMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+            if (nError) throw nError;
             modId = nMod?.id_modulo;
           } else {
-            await supabase.from("modulo").update({ nome: mod.nome, descricao: mod.descricao }).eq("id_modulo", modId);
+            const { error: updErr } = await supabase.from("modulo").update({ nome: mod.nome, descricao: mod.descricao }).eq("id_modulo", modId);
+            if (updErr) throw updErr;
           }
           
           if (modId) {
-            await supabase.from("treinamento_modulo").insert({ id_treinamento: id, id_modulo: modId, ordem: index });
+            const { error: tmErr } = await supabase.from("treinamento_modulo").insert({ 
+              id_treinamento: id, 
+              id_modulo: modId, 
+              ordem: index,
+              data_aula: mod.data_aula || null,
+              hora_inicio: mod.hora_inicio || null,
+              hora_fim: mod.hora_fim || null,
+              duracao_minutos: mod.duracao_minutos || null
+            });
+            if (tmErr) throw tmErr;
             
             if (mod.aulas && Array.isArray(mod.aulas) && mod.aulas.length > 0) {
               const aulaInserts = mod.aulas.map((aula: any, ai: number) => ({
@@ -249,9 +280,10 @@ Deno.serve(async (req) => {
                 hora_fim: aula.hora_fim || null,
                 duracao_minutos: aula.duracao_minutos || 0
               }));
-              await supabase.from("modulo_aula").insert(aulaInserts);
+              const { error: aulaErr } = await supabase.from("modulo_aula").insert(aulaInserts);
+              if (aulaErr) throw aulaErr;
             } else {
-              await supabase.from("modulo_aula").insert({
+              const { error: aulaErr } = await supabase.from("modulo_aula").insert({
                 id_modulo: modId,
                 id_treinamento: id,
                 ordem: 1,
@@ -260,6 +292,7 @@ Deno.serve(async (req) => {
                 hora_fim: mod.hora_fim || null,
                 duracao_minutos: mod.duracao_minutos || 0
               });
+              if (aulaErr) throw aulaErr;
             }
           }
         }

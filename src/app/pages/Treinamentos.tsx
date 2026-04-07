@@ -87,8 +87,8 @@ import React from "react";
 
 // Converte número para algarismo romano (1→I, 2→II, etc.)
 function toRoman(n: number): string {
-  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
-  const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
   let result = '';
   for (let i = 0; i < vals.length; i++) {
     while (n >= vals[i]) { result += syms[i]; n -= vals[i]; }
@@ -105,15 +105,12 @@ function moduloLabel(index: number, nome?: string): string {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function getAuthHeader() {
   const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  
-  const headers: Record<string, string> = {
-    "apikey": publicAnonKey || ""
-  };
+  const token = data.session?.access_token || publicAnonKey;
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  const headers: Record<string, string> = {
+    "apikey": publicAnonKey || "",
+    "Authorization": `Bearer ${token}`
+  };
 
   return headers;
 }
@@ -177,7 +174,7 @@ export function Treinamentos() {
           });
         }
       }
-    } catch(err) {
+    } catch (err) {
       console.error("fetchConfig error", err);
     }
   }, []);
@@ -192,7 +189,7 @@ export function Treinamentos() {
         body: JSON.stringify(globalConfig)
       });
       setSettingsOpen(false);
-    } catch(err) {
+    } catch (err) {
       console.error("Save config error", err);
     }
   };
@@ -201,7 +198,7 @@ export function Treinamentos() {
     try {
       const headers = await getAuthHeader();
       const response = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud", { headers });
-      
+
       if (!response.ok) {
         const text = await response.text();
         throw new Error(`Erro API Treinamentos: ${response.status} - ${text}`);
@@ -209,7 +206,7 @@ export function Treinamentos() {
 
       const trData = await response.json();
       const trArray = Array.isArray(trData) ? trData : [];
-      
+
       const mapped = trArray.map((t: any) => ({
         id: t.id_treinamento,
         title: t.nome,
@@ -217,14 +214,14 @@ export function Treinamentos() {
         date: t.data_inicio ? new Date(t.data_inicio).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }) : "Não definida",
         time: t.data_inicio ? `${new Date(t.data_inicio).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Não definido",
         status: t.status || "Agendado",
-        participants: t.students ? t.students.length : 0, 
+        participants: t.students ? t.students.length : 0,
         modulo: t.modules && t.modules.length > 0 ? moduloLabel(0, t.modules[0].modulo?.nome) : "N/A",
-        stats: { 
-          empresas: t.companies ? t.companies.length : 0, 
-          gruposEconomicos: 0, 
-          alunosSemEmpresa: 0 
+        stats: {
+          empresas: t.companies ? t.companies.length : 0,
+          gruposEconomicos: 0,
+          alunosSemEmpresa: 0
         },
-        raw: t 
+        raw: t
       }));
       setTrainings(mapped);
     } catch (err: any) {
@@ -238,7 +235,7 @@ export function Treinamentos() {
     try {
       const headers = await getAuthHeader();
       const resComp = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/empresas-crud", { headers });
-      
+
       if (!resComp.ok) {
         const errText = await resComp.text();
         throw new Error(`Erro API Empresas: ${resComp.status} - ${errText}`);
@@ -283,8 +280,8 @@ export function Treinamentos() {
         fetchCompanies(),
         fetchStudents()
       ]);
-      
-      setMaterials([]); 
+
+      setMaterials([]);
     } catch (err: any) {
       console.error("Erro em fetchData:", err);
       const msg = err?.message || String(err);
@@ -297,20 +294,20 @@ export function Treinamentos() {
   const formatForDateTimeLocal = (dateStr: string) => {
     if (!dateStr) return "";
     let d = new Date(dateStr);
-    
+
     // Fallback for some SQL formats if needed
     if (isNaN(d.getTime()) && typeof dateStr === 'string') {
       d = new Date(dateStr.replace(' ', 'T'));
     }
-    
+
     if (isNaN(d.getTime())) return "";
-    
+
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     const hours = String(d.getHours()).padStart(2, '0');
     const minutes = String(d.getMinutes()).padStart(2, '0');
-    
+
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
@@ -320,12 +317,12 @@ export function Treinamentos() {
 
   const [trainingSearchTerm, setTrainingSearchTerm] = useState("");
   const [selectedTrainingStatuses, setSelectedTrainingStatuses] = useState<string[]>([]);
-  const [trainingSort, setTrainingSort] = useState<{key: string, direction: "asc" | "desc"}>({ key: "date", direction: "desc" });
+  const [trainingSort, setTrainingSort] = useState<{ key: string, direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [materialSearchTerm, setMaterialSearchTerm] = useState("");
   const [selectedMaterialTypes, setSelectedMaterialTypes] = useState<string[]>([]);
   const [selectedMaterialTags, setSelectedMaterialTags] = useState<string[]>([]);
-  const [materialSort, setMaterialSort] = useState<{key: string, direction: "asc" | "desc"}>({ key: "dataEnvio", direction: "desc" });
-  
+  const [materialSort, setMaterialSort] = useState<{ key: string, direction: "asc" | "desc" }>({ key: "dataEnvio", direction: "desc" });
+
   const [addMaterialData, setAddMaterialData] = useState({
     name: "",
     trainingId: "",
@@ -336,7 +333,7 @@ export function Treinamentos() {
     dateEnvio: "",
     dateTraining: ""
   });
-  
+
   const [addMaterialOpen, setAddMaterialOpen] = useState(false);
   const [materialType, setMaterialType] = useState<"conteudo" | "reuniao">("conteudo");
   const [expandedMaterial, setExpandedMaterial] = useState<string | null>(null);
@@ -392,12 +389,12 @@ export function Treinamentos() {
   const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
   const [activeTab, setActiveTab] = useState("1");
   const [studentModalCompanyFilter, setStudentModalCompanyFilter] = useState("todas");
-  
+
   // Stats Modal State
-  const [statsModalOpen, setStatsModalOpen] = useState<{type: string, title: string, count: number, trainingId: string} | null>(null);
+  const [statsModalOpen, setStatsModalOpen] = useState<{ type: string, title: string, count: number, trainingId: string } | null>(null);
   const [statsSearch, setStatsSearch] = useState("");
   const [selectedStatsStatuses, setSelectedStatsStatuses] = useState<string[]>([]);
-  const [statsSort, setStatsSort] = useState<{key: string, direction: "asc" | "desc"}>({ key: "nome", direction: "asc" });
+  const [statsSort, setStatsSort] = useState<{ key: string, direction: "asc" | "desc" }>({ key: "nome", direction: "asc" });
 
   const getSortIcon = (config: any, key: string) => {
     if (config.key !== key) return <ArrowUpDown className="w-4 h-4 ml-1 text-muted-foreground inline" />;
@@ -416,7 +413,7 @@ export function Treinamentos() {
     return [...array].sort((a, b) => {
       let aVal = (a as any)[config.key || "nome"];
       let bVal = (b as any)[config.key || "nome"];
-      
+
       // Special case for date sorting
       if (config.key === "date") {
         aVal = a.raw?.data_inicio || "";
@@ -497,7 +494,7 @@ export function Treinamentos() {
       carga_horaria: raw.carga_horaria || "",
       startDate: formatForDateTimeLocal(raw.data_inicio),
       endDate: formatForDateTimeLocal(raw.data_fim),
-      partnership: "venda-direta", 
+      partnership: "venda-direta",
       partnershipCompany: "",
       students: raw.students ? raw.students.map((s: any) => s.id_aluno) : [],
       companies: raw.companies ? raw.companies.map((c: any) => c.id_empresa) : []
@@ -512,7 +509,7 @@ export function Treinamentos() {
         hora_inicio: m.hora_inicio || "",
         hora_fim: m.hora_fim || "",
         duracao_minutos: m.duracao_minutos || "",
-        aulas: (m.aulas ?? m.partes ?? []).map((p: any) => ({
+        aulas: (m.modulo?.aulas ?? m.modulo?.partes ?? []).map((p: any) => ({
           ordem: p.ordem,
           data_aula: p.data_aula || "",
           hora_inicio: p.hora_inicio || "",
@@ -523,7 +520,7 @@ export function Treinamentos() {
     } else {
       setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
     }
-    
+
     setAddTrainingOpen(true);
     setIsTrainingDirty(false);
   };
@@ -571,7 +568,7 @@ export function Treinamentos() {
     setActiveTab(m.id);
     setIsTrainingDirty(true);
   };
-  
+
   const handleRemoveModule = (id: string) => {
     if (trainingModules.length <= 1) return;
     const filtered = trainingModules.filter(m => m.id !== id);
@@ -592,9 +589,9 @@ export function Treinamentos() {
   };
 
   const resetTrainingForm = () => {
-    setTrainingData({ 
-      name: "", 
-      description: "", 
+    setTrainingData({
+      name: "",
+      description: "",
       status: "Agendado",
       carga_horaria: "",
       startDate: "",
@@ -627,7 +624,7 @@ export function Treinamentos() {
 
   const confirmDeleteTraining = async () => {
     if (!editingTrainingId) return;
-    
+
     setIsLoading(true);
     try {
       const authHdrs = await getAuthHeader();
@@ -664,7 +661,7 @@ export function Treinamentos() {
         data_inicio: trainingData.startDate || null,
         data_fim: trainingData.endDate || null,
         modules: trainingModules.map((m, index) => ({
-          id_modulo: (m.id && m.id.length > 10) ? m.id : null,
+          id_modulo: (m.id && !m.id.startsWith("temp-") && !m.id.startsWith("new-mod")) ? m.id : null,
           nome: m.name.trim() || null,
           descricao: m.description || null,
           ordem: index,
@@ -693,16 +690,18 @@ export function Treinamentos() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        console.error("Save failure details:", errorData);
         throw new Error(errorData.error || "Erro ao salvar treinamento");
       }
 
+      console.log("Treinamento salvo com sucesso!");
       setSaveTrainingConfirmOpen(false);
       setAddTrainingOpen(false);
       resetTrainingForm();
       // Optimization: refresh data without full page reload
-      await fetchData(); 
+      await fetchData();
     } catch (err: any) {
-      console.error(err);
+      console.error("Save error:", err);
       alert(err.message || "Erro ao salvar treinamento");
     } finally {
       setIsLoading(false);
@@ -743,7 +742,7 @@ export function Treinamentos() {
       {/* Trainings Section */}
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold text-foreground">Treinamentos</h2>
-        
+
         <Card className="p-4">
           <div className="flex flex-col md:flex-row gap-4 items-center">
             <div className="flex-1 w-full">
@@ -760,7 +759,7 @@ export function Treinamentos() {
                 selectedValues={selectedTrainingStatuses}
                 onSelect={setSelectedTrainingStatuses}
               />
-              <Select 
+              <Select
                 value={`${trainingSort.key}-${trainingSort.direction}`}
                 onValueChange={(val) => {
                   const [key, direction] = val.split("-");
@@ -823,9 +822,9 @@ export function Treinamentos() {
                       </div>
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent className="px-6 pb-4 pt-2 border-t">
+                  <AccordionContent className="px-6 pb-6 pt-2 border-t">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'alunos', title: 'Alunos Cadastrados', count: training.participants, trainingId: training.id})}>
+                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({ type: 'alunos', title: 'Alunos Cadastrados', count: training.participants, trainingId: training.id })}>
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span className="text-sm font-medium">Alunos</span>
@@ -834,7 +833,7 @@ export function Treinamentos() {
                           <span className="text-2xl font-bold">{training.participants}</span>
                         </div>
                       </Card>
-                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'empresas', title: 'Empresas Participantes', count: training.stats?.empresas || 0, trainingId: training.id})}>
+                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({ type: 'empresas', title: 'Empresas Participantes', count: training.stats?.empresas || 0, trainingId: training.id })}>
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span className="text-sm font-medium">Empresas</span>
@@ -843,7 +842,7 @@ export function Treinamentos() {
                           <span className="text-2xl font-bold">{training.stats?.empresas || 0}</span>
                         </div>
                       </Card>
-                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'grupos', title: 'Grupos Econômicos', count: training.stats?.gruposEconomicos || 0, trainingId: training.id})}>
+                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({ type: 'grupos', title: 'Grupos Econômicos', count: training.stats?.gruposEconomicos || 0, trainingId: training.id })}>
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span className="text-sm font-medium">Grupos</span>
@@ -852,7 +851,7 @@ export function Treinamentos() {
                           <span className="text-2xl font-bold">{training.stats?.gruposEconomicos || 0}</span>
                         </div>
                       </Card>
-                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({type: 'sem-empresa', title: 'Alunos Sem Empresa', count: training.stats?.alunosSemEmpresa || 0, trainingId: training.id})}>
+                      <Card className="p-4 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setStatsModalOpen({ type: 'sem-empresa', title: 'Alunos Sem Empresa', count: training.stats?.alunosSemEmpresa || 0, trainingId: training.id })}>
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center justify-between text-muted-foreground">
                             <span className="text-sm font-medium">Sem Empresa</span>
@@ -861,16 +860,66 @@ export function Treinamentos() {
                           <span className="text-2xl font-bold">{training.stats?.alunosSemEmpresa || 0}</span>
                         </div>
                       </Card>
-                      <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleEditTraining(training); }}>
-                          <Pencil className="w-4 h-4 mr-2" />
-                          Editar Treinamento
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          <Download className="w-4 h-4 mr-2" />
-                          Relatório
-                        </Button>
+                    </div>
+
+                    <div className="mt-8 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-lg flex items-center gap-2">
+                          <FileText className="w-5 h-5 text-blue-500" />
+                          Módulos do Treinamento
+                        </h4>
                       </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {training.raw?.modules && training.raw.modules.length > 0 ? (
+                          training.raw.modules.map((m: any, idx: number) => {
+                            const modAulas = m.modulo?.aulas || [];
+                            return (
+                              <Card key={m.id_modulo || idx} className="p-4 border-l-4 border-l-blue-500 flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                                    {moduloLabel(m.ordem ?? idx, m.modulo?.nome)}
+                                  </span>
+                                  {m.data_aula && (
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {new Date(m.data_aula + "T12:00:00").toLocaleDateString("pt-BR")}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {m.modulo?.descricao && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2">{m.modulo.descricao}</p>
+                                )}
+                                <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t text-[10px] text-muted-foreground">
+                                  {m.hora_inicio && (
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="w-3 h-3" /> {m.hora_inicio.slice(0, 5)} - {m.hora_fim?.slice(0, 5)}
+                                    </span>
+                                  )}
+                                  {modAulas.length > 0 && (
+                                    <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full">
+                                      {modAulas.length} aula(s)
+                                    </span>
+                                  )}
+                                </div>
+                              </Card>
+                            );
+                          })
+                        ) : (
+                          <div className="col-span-2 text-center py-6 bg-muted/20 rounded-lg border border-dashed text-sm text-muted-foreground italic">
+                            Nenhum módulo configurado para este treinamento.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 mt-8 pt-4 border-t">
+                      <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleEditTraining(training); }}>
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Editar Treinamento
+                      </Button>
+                      <Button variant="outline" size="sm">
+                        <Download className="w-4 h-4 mr-2" />
+                        Relatório
+                      </Button>
                     </div>
                   </AccordionContent>
                 </AccordionItem>
@@ -911,7 +960,7 @@ export function Treinamentos() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[40px]"></TableHead>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
                     onClick={() => handleSort(setMaterialSort, materialSort, "nome")}
                   >
@@ -919,7 +968,7 @@ export function Treinamentos() {
                       Nome {getSortIcon(materialSort, "nome")}
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
                     onClick={() => handleSort(setMaterialSort, materialSort, "treinamento")}
                   >
@@ -937,7 +986,7 @@ export function Treinamentos() {
                       />
                     </div>
                   </TableHead>
-                  <TableHead 
+                  <TableHead
                     className="cursor-pointer select-none hover:bg-muted/50 transition-colors font-normal text-xs"
                     onClick={() => handleSort(setMaterialSort, materialSort, "dataEnvio")}
                   >
@@ -1106,16 +1155,16 @@ export function Treinamentos() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2 col-span-2">
                 <Label>Nome do {addMaterialData.type === "conteudo" ? "Material" : "Reunião"}</Label>
-                <Input 
-                  placeholder={addMaterialData.type === "conteudo" ? "Ex: Apostila de Finanças" : "Ex: Reunião de Kick-off"} 
+                <Input
+                  placeholder={addMaterialData.type === "conteudo" ? "Ex: Apostila de Finanças" : "Ex: Reunião de Kick-off"}
                   value={addMaterialData.name}
                   onChange={(e) => setAddMaterialData({ ...addMaterialData, name: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Treinamento</Label>
-                <Select 
-                  value={addMaterialData.trainingId} 
+                <Select
+                  value={addMaterialData.trainingId}
                   onValueChange={(val) => setAddMaterialData({ ...addMaterialData, trainingId: val, moduleId: "" })}
                 >
                   <SelectTrigger>
@@ -1132,8 +1181,8 @@ export function Treinamentos() {
               </div>
               <div className="space-y-2">
                 <Label>Módulo</Label>
-                <Select 
-                  value={addMaterialData.moduleId} 
+                <Select
+                  value={addMaterialData.moduleId}
                   onValueChange={(val) => setAddMaterialData({ ...addMaterialData, moduleId: val })}
                   disabled={!addMaterialData.trainingId}
                 >
@@ -1151,24 +1200,24 @@ export function Treinamentos() {
               </div>
               <div className="space-y-2">
                 <Label>Data de Envio</Label>
-                <Input 
-                  type="date" 
+                <Input
+                  type="date"
                   value={addMaterialData.dateEnvio}
                   onChange={(e) => setAddMaterialData({ ...addMaterialData, dateEnvio: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Data do Treinamento</Label>
-                <Input 
-                  type="date" 
+                <Input
+                  type="date"
                   value={addMaterialData.dateTraining}
                   onChange={(e) => setAddMaterialData({ ...addMaterialData, dateTraining: e.target.value })}
                 />
               </div>
               <div className="space-y-2 col-span-2">
                 <Label>Tag</Label>
-                <Input 
-                  placeholder={addMaterialData.type === "conteudo" ? "Ex: PDF, Vídeo, Slide" : "Ex: Zoom, Teams, Meet"} 
+                <Input
+                  placeholder={addMaterialData.type === "conteudo" ? "Ex: PDF, Vídeo, Slide" : "Ex: Zoom, Teams, Meet"}
                   value={addMaterialData.tag}
                   onChange={(e) => setAddMaterialData({ ...addMaterialData, tag: e.target.value })}
                 />
@@ -1260,8 +1309,8 @@ export function Treinamentos() {
               </div>
               <div className="space-y-2 col-span-2 lg:col-span-1">
                 <Label>Vínculo</Label>
-                <Select 
-                  value={trainingData.status} 
+                <Select
+                  value={trainingData.status}
                   onValueChange={(v) => {
                     setTrainingData({ ...trainingData, status: v });
                     setIsTrainingDirty(true);
@@ -1696,9 +1745,9 @@ export function Treinamentos() {
                                     {student?.cargo} em {student?.empresa}
                                   </TableCell>
                                   <TableCell>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
                                       className="h-8 w-8 text-destructive hover:bg-red-50"
                                       onClick={() => {
                                         setTrainingData({
@@ -1782,9 +1831,9 @@ export function Treinamentos() {
                                   <TableCell className="font-medium">{company?.nome}</TableCell>
                                   <TableCell className="text-muted-foreground text-xs">{company?.cnpj}</TableCell>
                                   <TableCell>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="icon" 
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
                                       className="h-8 w-8 text-destructive hover:bg-red-50"
                                       onClick={() => {
                                         setTrainingData({
@@ -1818,8 +1867,8 @@ export function Treinamentos() {
           <DialogFooter className="flex flex-row items-center justify-between">
             <div className="flex-1 text-left">
               {editingTrainingId && (
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   onClick={handleConfirmDeleteTraining}
                   className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-2 p-0 px-2"
                 >
@@ -1883,14 +1932,14 @@ export function Treinamentos() {
               Excluir Treinamento
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Você está prestes a excluir permanentemente o treinamento "{trainingData.name}". 
+              Você está prestes a excluir permanentemente o treinamento "{trainingData.name}".
               Esta ação removerá todos os dados de presença, notas e vículos de alunos associados.
               Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmDeleteTraining}
               className="bg-destructive hover:bg-destructive/90"
             >
@@ -1915,7 +1964,7 @@ export function Treinamentos() {
               Listagem consolidada para o treinamento selecionado. ({statsModalOpen?.count} registros encontrados)
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="py-4 space-y-4 flex-1 overflow-hidden flex flex-col">
             <div className="flex gap-4">
               <div className="flex-1">
@@ -1931,7 +1980,7 @@ export function Treinamentos() {
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
                   <TableRow>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
                       onClick={() => handleSort(setStatsSort, statsSort, "nome")}
                     >
@@ -1939,7 +1988,7 @@ export function Treinamentos() {
                         Nome {getSortIcon(statsSort, "nome")}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
                       onClick={() => handleSort(setStatsSort, statsSort, "info")}
                     >
@@ -1967,16 +2016,16 @@ export function Treinamentos() {
                   {genericSort(
                     Array.from({ length: statsModalOpen?.count || 10 }).map((_, i) => ({
                       id: String(i),
-                      nome: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos' 
+                      nome: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos'
                         ? ['AutoBrasil SA', 'Peças Plus', 'Moto Parts', 'TurboPeças', 'Premium Auto'][i % 5]
                         : ['João Silva', 'Maria Santos', 'Carlos Lima', 'Ana Costa', 'Roberto Mendes'][i % 5],
-                      info: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos' 
+                      info: statsModalOpen?.type === 'empresas' || statsModalOpen?.type === 'grupos'
                         ? `00.000.000/0001-${i < 10 ? '0' + i : i}`
                         : ['AutoBrasil SA', 'Moto Parts', 'Peças Plus', 'Nacional Autopeças'][i % 4],
                       status: ["Ativo", "Pendente", "Concluído", "Suspenso"][i % 4]
                     })).filter(item => {
                       const matchesSearch = item.nome.toLowerCase().includes(statsSearch.toLowerCase()) ||
-                                          item.info.toLowerCase().includes(statsSearch.toLowerCase());
+                        item.info.toLowerCase().includes(statsSearch.toLowerCase());
                       const matchesStatus = selectedStatsStatuses.length === 0 || selectedStatsStatuses.includes(item.status);
                       return matchesSearch && matchesStatus;
                     }),
@@ -1986,14 +2035,14 @@ export function Treinamentos() {
                       <TableCell className="font-medium">{item.nome}</TableCell>
                       <TableCell className="text-muted-foreground">{item.info}</TableCell>
                       <TableCell>
-                        <Badge 
-                          variant="outline" 
+                        <Badge
+                          variant="outline"
                           className={cn(
                             "outline-none",
                             item.status === "Ativo" ? "bg-green-50 text-green-700 border-green-200" :
-                            item.status === "Pendente" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                            item.status === "Concluído" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                            "bg-red-50 text-red-700 border-red-200"
+                              item.status === "Pendente" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                item.status === "Concluído" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                                  "bg-red-50 text-red-700 border-red-200"
                           )}
                         >
                           {item.status}
@@ -2028,37 +2077,37 @@ export function Treinamentos() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Nota Mínima do Módulo</Label>
-              <Input 
-                type="number" 
-                step="0.1" 
-                value={globalConfig.nota_minima_modulo} 
+              <Input
+                type="number"
+                step="0.1"
+                value={globalConfig.nota_minima_modulo}
                 onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_modulo: Number(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
               <Label>Nota Mínima do Curso</Label>
-              <Input 
-                type="number" 
-                step="0.1" 
-                value={globalConfig.nota_minima_curso} 
+              <Input
+                type="number"
+                step="0.1"
+                value={globalConfig.nota_minima_curso}
                 onChange={(e) => setGlobalConfig({ ...globalConfig, nota_minima_curso: Number(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
               <Label>Presença Mínima (%)</Label>
-              <Input 
-                type="number" 
-                step="1" 
-                value={globalConfig.presenca_minima_porcentagem} 
+              <Input
+                type="number"
+                step="1"
+                value={globalConfig.presenca_minima_porcentagem}
                 onChange={(e) => setGlobalConfig({ ...globalConfig, presenca_minima_porcentagem: Number(e.target.value) })}
               />
             </div>
             <div className="space-y-2">
               <Label>Tempo de Tolerância para Atraso (min)</Label>
-              <Input 
-                type="number" 
-                step="1" 
-                value={globalConfig.minutos_tolerancia_atraso} 
+              <Input
+                type="number"
+                step="1"
+                value={globalConfig.minutos_tolerancia_atraso}
                 onChange={(e) => setGlobalConfig({ ...globalConfig, minutos_tolerancia_atraso: Number(e.target.value) })}
               />
             </div>
