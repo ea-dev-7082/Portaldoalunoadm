@@ -82,6 +82,7 @@ import {
   TabsTrigger,
 } from "../components/ui/tabs";
 import { ScrollArea } from "../components/ui/scroll-area";
+import { toast } from "sonner"; // Assuming sonner is used, or replace with alert if not available
 
 import React from "react";
 
@@ -187,7 +188,6 @@ export function Treinamentos() {
       const authHdrs = await getAuthHeader();
       const hdrs = { ...authHdrs, "Content-Type": "application/json" };
       
-      // Clean data for API
       const payload = {
         nota_minima_modulo: parseFloat(String(globalConfig.nota_minima_modulo).replace(",", ".")),
         nota_minima_curso: parseFloat(String(globalConfig.nota_minima_curso).replace(",", ".")),
@@ -207,7 +207,6 @@ export function Treinamentos() {
       }
 
       setSettingsOpen(false);
-      // Refresh local config to ensure formatting is reapplied
       fetchConfig();
     } catch (err) {
       console.error("Save config error", err);
@@ -229,7 +228,6 @@ export function Treinamentos() {
       const trArray = Array.isArray(trData) ? trData : [];
 
       const mapped = trArray.map((t: any) => {
-        // Derive unique companies from students
         const uniqueCompaniesMap = new Map();
         t.students?.forEach((s: any) => {
           const emp = s.aluno?.empresa;
@@ -240,7 +238,6 @@ export function Treinamentos() {
                 nome: emp.nome,
                 cnpj: emp.cnpj,
                 matriz: emp.matriz?.nome || "-",
-                // Partnership is active if there is an 'Ativo' formation record
                 parceria: emp.formacao?.some((f: any) => f.status === 'Ativo') ? 'Programa Formação' : 'Venda Direta',
                 alunos: 0,
                 id_matriz: emp.id_matriz,
@@ -320,14 +317,12 @@ export function Treinamentos() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      // Procedemos diretamente sem aguardar sessão, usando publicAnonKey nos headers
       await Promise.all([
         fetchConfig(),
         fetchTrainings(),
         fetchCompanies(),
         fetchStudents()
       ]);
-
       setMaterials([]);
     } catch (err: any) {
       console.error("Erro em fetchData:", err);
@@ -336,26 +331,20 @@ export function Treinamentos() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTrainings, fetchCompanies, fetchStudents]);
+  }, [fetchTrainings, fetchCompanies, fetchStudents, fetchConfig]);
 
   const formatForDateTimeLocal = (dateStr: string) => {
     if (!dateStr) return "";
     let d = new Date(dateStr);
-
-    // Fallback for some SQL formats if needed
     if (isNaN(d.getTime()) && typeof dateStr === 'string') {
       d = new Date(dateStr.replace(' ', 'T'));
     }
-
     if (isNaN(d.getTime())) return "";
 
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
+    return `${year}-${month}-${day}`;
   };
 
   useEffect(() => {
@@ -396,6 +385,7 @@ export function Treinamentos() {
   const [discardTrainingOpen, setDiscardTrainingOpen] = useState(false);
   const [saveTrainingConfirmOpen, setSaveTrainingConfirmOpen] = useState(false);
   const [confirmDeleteTrainingOpen, setConfirmDeleteTrainingOpen] = useState(false);
+  
   const [trainingData, setTrainingData] = useState({
     name: "",
     description: "",
@@ -407,32 +397,145 @@ export function Treinamentos() {
     partnershipCompany: "",
     students: [] as string[]
   });
+
   interface ModuloParte {
     ordem: number;
     data_aula: string;
     hora_inicio: string;
+    hora_fim: string;
   }
   interface TrainingModule {
     id: string;
-    name: string;         // nome personalizado (opcional)
+    name: string;
     description: string;
-    data_aula: string;    // para módulo de parte única
-    hora_inicio: string;  // para módulo de parte única
+    data_aula: string;
+    hora_inicio: string;
     hora_fim: string;
-    duracao_minutos: number | "";
     aulas: ModuloParte[];
   }
+  
   const emptyModule = (n: number): TrainingModule => ({
-    id: `temp-${Date.now()}-${n}`,
+    id: `new-mod-${Date.now()}-${n}`,
     name: "",
     description: "",
     data_aula: "",
     hora_inicio: "",
     hora_fim: "",
-    duracao_minutos: "",
     aulas: [],
   });
-  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
+
+  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
+
+  // Automated Status and Dates Logic
+  useEffect(() => {
+    let allAulas: { data: string; hora: string }[] = [];
+    trainingModules.forEach((m) => {
+      if (m.aulas.length > 0) {
+        m.aulas.forEach((a) => {
+          if (a.data_aula) allAulas.push({ data: a.data_aula, hora: a.hora_inicio || "09:00" });
+        });
+      } else if (m.data_aula) {
+        allAulas.push({ data: m.data_aula, hora: m.hora_inicio || "09:00" });
+      }
+    });
+
+    if (allAulas.length > 0) {
+      allAulas.sort((a, b) => {
+        const d1 = new Date(`${a.data}T${a.hora}`);
+        const d2 = new Date(`${b.data}T${b.hora}`);
+        return d1.getTime() - d2.getTime();
+      });
+
+      const first = allAulas[0].data;
+      const last = allAulas[allAulas.length - 1].data;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = new Date(first + "T00:00:00");
+      const end = new Date(last + "T23:59:59");
+
+      let autoStatus = "Agendado";
+      if (today >= start && today <= end) autoStatus = "Em andamento";
+      else if (today > end) autoStatus = "Concluído";
+
+      setTrainingData((prev) => ({
+        ...prev,
+        startDate: first,
+        endDate: last,
+        status: autoStatus,
+      }));
+    }
+  }, [trainingModules]);
+
+  // Helper for Minimum Date/Time Logic (Treating Date+Time as composite)
+  const getPrevEndPoint = (modIdx: number, aulaIdx: number | null, currentModules: TrainingModule[]) => {
+    let prevDate = "";
+    let prevTime = "";
+
+    if (aulaIdx !== null && aulaIdx > 0) {
+      const prev = currentModules[modIdx].aulas[aulaIdx - 1];
+      prevDate = prev.data_aula;
+      prevTime = prev.hora_fim;
+    } else if (modIdx > 0) {
+      const prevMod = currentModules[modIdx - 1];
+      if (prevMod.aulas.length > 0) {
+        const lastAula = prevMod.aulas[prevMod.aulas.length - 1];
+        prevDate = lastAula.data_aula;
+        prevTime = lastAula.hora_fim;
+      } else {
+        prevDate = prevMod.data_aula;
+        prevTime = prevMod.hora_fim;
+      }
+    }
+
+    if (!prevDate || !prevTime) return null;
+    return { date: prevDate, time: prevTime };
+  };
+
+  const validateAndReset = (modIdx: number, aulaIdx: number | null) => {
+    const prev = getPrevEndPoint(modIdx, aulaIdx, trainingModules);
+    if (!prev) return;
+
+    const m = [...trainingModules];
+    const mod = m[modIdx];
+    const aula = aulaIdx !== null ? mod.aulas[aulaIdx] : null;
+
+    const currDate = aula ? aula.data_aula : mod.data_aula;
+    const currTime = aula ? aula.hora_inicio : mod.hora_inicio;
+
+    if (!currDate || !currTime) return;
+
+    // Use a fixed hour (12:00) for cross-date calculations if time is missing, 
+    // but here we have both. We use T because it's ISO literal.
+    const prevDT = new Date(`${prev.date}T${prev.time}`);
+    const currDT = new Date(`${currDate}T${currTime}`);
+
+    if (currDT <= prevDT) {
+      // Invalid sequence. Set to prev + 1 minute.
+      const minDT = new Date(prevDT.getTime() + 60000);
+      const newDate = minDT.toISOString().split("T")[0];
+      const newTime = minDT.toTimeString().slice(0, 5);
+
+      if (aula) {
+        mod.aulas[aulaIdx!] = { ...aula, data_aula: newDate, hora_inicio: newTime };
+        // Check if end time also became invalid
+        const endDT = new Date(`${newDate}T${aula.hora_fim || "00:00"}`);
+        if (endDT <= minDT) {
+          const nextH = new Date(minDT.getTime() + 3600000); // Default +1 hour
+          mod.aulas[aulaIdx!].hora_fim = nextH.toTimeString().slice(0, 5);
+        }
+      } else {
+        m[modIdx] = { ...mod, data_aula: newDate, hora_inicio: newTime };
+        const endDT = new Date(`${newDate}T${mod.hora_fim || "00:00"}`);
+        if (endDT <= minDT) {
+          const nextH = new Date(minDT.getTime() + 3600000);
+          m[modIdx].hora_fim = nextH.toTimeString().slice(0, 5);
+        }
+      }
+      setTrainingModules(m);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState("1");
   const [studentModalCompanyFilter, setStudentModalCompanyFilter] = useState("todas");
 
@@ -460,7 +563,6 @@ export function Treinamentos() {
       let aVal = (a as any)[config.key || "nome"];
       let bVal = (b as any)[config.key || "nome"];
 
-      // Special case for date sorting
       if (config.key === "date") {
         aVal = a.raw?.data_inicio || "";
         bVal = b.raw?.data_inicio || "";
@@ -527,7 +629,6 @@ export function Treinamentos() {
   };
 
   const handleEditTraining = async (training: any) => {
-    // Refresh background data without blocking
     fetchStudents();
     fetchCompanies();
 
@@ -553,17 +654,16 @@ export function Treinamentos() {
         data_aula: m.data_aula || "",
         hora_inicio: m.hora_inicio || "",
         hora_fim: m.hora_fim || "",
-        duracao_minutos: m.duracao_minutos || "",
         aulas: (m.modulo?.aulas ?? m.modulo?.partes ?? []).map((p: any) => ({
           ordem: p.ordem,
           data_aula: p.data_aula || "",
           hora_inicio: p.hora_inicio || "",
           hora_fim: p.hora_fim || "",
-          duracao_minutos: p.duracao_minutos || "",
         })),
       })));
+      setActiveTab(raw.modules[0].id_modulo || "1");
     } else {
-      setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
+      setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
     }
 
     setAddTrainingOpen(true);
@@ -571,7 +671,6 @@ export function Treinamentos() {
   };
 
   const handleAddNewTraining = async () => {
-    // Refresh background data
     fetchStudents();
 
     setEditingTrainingId(null);
@@ -586,9 +685,10 @@ export function Treinamentos() {
       partnershipCompany: "",
       students: []
     });
-    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
+    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
     setAddTrainingOpen(true);
     setIsTrainingDirty(false);
+    setActiveTab("1");
   };
 
   const handleDeleteMaterial = (material: Material) => {
@@ -644,7 +744,7 @@ export function Treinamentos() {
       students: []
     });
     setEditingTrainingId(null);
-    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "", aulas: [] }]);
+    setTrainingModules([{ id: "1", name: "", description: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
     setIsTrainingDirty(false);
     setActiveTab("1");
     setStudentModalCompanyFilter("todas");
@@ -693,26 +793,90 @@ export function Treinamentos() {
   };
 
   const confirmSaveTraining = async () => {
+    // 1. Verificação de campos obrigatórios do cabeçalho
+    if (!trainingData.name.trim() || !trainingData.carga_horaria) {
+      toast.error("Por favor, preencha o nome do treinamento e a carga horária.");
+      return;
+    }
+
+    // 2. Validar ordem cronológica e campos obrigatórios de módulos/aulas
+    const sortedAulas: { data: string; inicio: string; fim: string; name: string }[] = [];
+    
+    for (let i = 0; i < trainingModules.length; i++) {
+        const m = trainingModules[i];
+        const mName = m.name || `Módulo ${toRoman(i + 1)}`;
+        
+        if (m.aulas.length > 0) {
+            for (let j = 0; j < m.aulas.length; j++) {
+                const a = m.aulas[j];
+                const aName = `${mName} - Aula ${toRoman(j + 1)}`;
+                if (!a.data_aula || !a.hora_inicio || !a.hora_fim) {
+                    toast.error(`Preencha todos os campos de data e hora em: ${aName}`);
+                    return;
+                }
+                sortedAulas.push({ data: a.data_aula, inicio: a.hora_inicio, fim: a.hora_fim, name: aName });
+            }
+        } else {
+            if (!m.data_aula || !m.hora_inicio || !m.hora_fim) {
+                toast.error(`Preencha data e hora para o ${mName} ou adicione aulas.`);
+                return;
+            }
+            sortedAulas.push({ data: m.data_aula, inicio: m.hora_inicio, fim: m.hora_fim, name: mName });
+        }
+    }
+
+    // Verificação secundária de segurança (embora o auto-reset cuide disso)
+    let lastDate: Date | null = null;
+    for (const a of sortedAulas) {
+      const start = new Date(`${a.data}T${a.inicio}`);
+      const end = new Date(`${a.data}T${a.fim}`);
+      
+      if (end <= start) {
+        toast.error(`O horário de término deve ser após o início em ${a.name}`);
+        return;
+      }
+
+      if (lastDate && start < lastDate) {
+        toast.error(`Conflito: ${a.name} começa antes da aula anterior terminar.`);
+        return;
+      }
+      lastDate = end;
+    }
+
+    setSaveTrainingConfirmOpen(false);
     setIsLoading(true);
     try {
       const payload = {
+        id_treinamento: editingTrainingId, // Payload explicit id
         nome: trainingData.name,
         descricao: trainingData.description,
         status: trainingData.status,
         carga_horaria: trainingData.carga_horaria || null,
         data_inicio: trainingData.startDate || null,
         data_fim: trainingData.endDate || null,
-        modules: trainingModules.map((m, index) => ({
-          id_modulo: (m.id && !m.id.startsWith("temp-") && !m.id.startsWith("new-mod")) ? m.id : null,
-          nome: m.name.trim() || null,
-          descricao: m.description || null,
-          ordem: index,
-          data_aula: m.data_aula || null,
-          hora_inicio: m.hora_inicio || null,
-          hora_fim: m.hora_fim || null,
-          duracao_minutos: m.duracao_minutos || null,
-          aulas: m.aulas,
-        })),
+        modules: trainingModules.map((m, index) => {
+          let m_data = m.data_aula;
+          let m_inicio = m.hora_inicio;
+          let m_fim = m.hora_fim;
+
+          if (m.aulas.length > 0) {
+            m_data = m.aulas[0].data_aula;
+            m_inicio = m.aulas[0].hora_inicio;
+            // O fim do módulo é o fim da última aula
+            m_fim = m.aulas[m.aulas.length - 1].hora_fim;
+          }
+
+          return {
+            id_modulo: (m.id && !m.id.startsWith("new-mod")) ? m.id : null,
+            nome: m.name.trim() || null,
+            descricao: m.description || null,
+            ordem: index,
+            data_aula: m_data || null,
+            hora_inicio: m_inicio || null,
+            hora_fim: m_fim || null,
+            aulas: m.aulas,
+          };
+        }),
         students: trainingData.students
       };
 
@@ -735,15 +899,14 @@ export function Treinamentos() {
         throw new Error(errorData.error || "Erro ao salvar treinamento");
       }
 
-      console.log("Treinamento salvo com sucesso!");
-      setSaveTrainingConfirmOpen(false);
+      toast.success(editingTrainingId ? "Treinamento atualizado com sucesso!" : "Treinamento criado com sucesso!");
       setAddTrainingOpen(false);
       resetTrainingForm();
-      // Optimization: refresh data without full page reload
-      await fetchData();
+      // Pequeno delay para garantir processamento no backend antes do refresh
+      setTimeout(() => fetchData(), 500);
     } catch (err: any) {
       console.error("Save error:", err);
-      alert(err.message || "Erro ao salvar treinamento");
+      toast.error(err.message || "Erro ao salvar treinamento");
     } finally {
       setIsLoading(false);
     }
@@ -773,7 +936,7 @@ export function Treinamentos() {
           <Button variant="outline" size="icon" onClick={() => setSettingsOpen(true)}>
             <Settings className="w-5 h-5 text-muted-foreground" />
           </Button>
-          <Button className="gap-2" onClick={() => setAddTrainingOpen(true)}>
+          <Button className="gap-2" onClick={handleAddNewTraining}>
             <Plus className="w-4 h-4" />
             Adicionar Treinamento
           </Button>
@@ -1082,10 +1245,10 @@ export function Treinamentos() {
                           <Badge variant="outline">{material.modulo}</Badge>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{material.dataEnvio}</TableCell>
-                        <TableCell className="text-muted-foreground">{material.dataTreinamento}</TableCell>
                         <TableCell>
                           <Badge variant="secondary">{material.tag}</Badge>
                         </TableCell>
+                        <TableCell></TableCell>
                       </TableRow>
                       {expandedMaterial === material.id && (
                         <TableRow>
@@ -1330,7 +1493,7 @@ export function Treinamentos() {
       }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>Adicionar Novo Treinamento</DialogTitle>
+            <DialogTitle>{editingTrainingId ? 'Editar Treinamento' : 'Adicionar Novo Treinamento'}</DialogTitle>
             <DialogDescription>
               Preencha os dados básicos do treinamento e adicione os módulos necessários.
             </DialogDescription>
@@ -1349,45 +1512,33 @@ export function Treinamentos() {
                 />
               </div>
               <div className="space-y-2 col-span-2 lg:col-span-1">
-                <Label>Vínculo</Label>
-                <Select
-                  value={trainingData.status}
-                  onValueChange={(v) => {
-                    setTrainingData({ ...trainingData, status: v });
-                    setIsTrainingDirty(true);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Status do Treinamento" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Agendado">Agendado</SelectItem>
-                    <SelectItem value="Em andamento">Em andamento</SelectItem>
-                    <SelectItem value="Concluído">Concluído</SelectItem>
-                    <SelectItem value="Cancelado">Cancelado</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Status (Automatizado)</Label>
+                <div className={cn(
+                  "h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm flex items-center font-medium",
+                  trainingData.status === "Em andamento" ? "text-green-600" :
+                  trainingData.status === "Agendado" ? "text-blue-600" : "text-muted-foreground"
+                )}>
+                  {trainingData.status}
+                </div>
               </div>
               <div className="space-y-2 col-span-2 lg:col-span-1">
-                <Label>Data de Início *</Label>
+                <Label>Data de Início (Automático)</Label>
                 <Input
-                  type="datetime-local"
+                  type="date"
                   value={trainingData.startDate}
-                  onChange={(e) => {
-                    setTrainingData({ ...trainingData, startDate: e.target.value });
-                    setIsTrainingDirty(true);
-                  }}
+                  readOnly
+                  disabled
+                  className="bg-muted cursor-default"
                 />
               </div>
               <div className="space-y-2 col-span-2 lg:col-span-1">
-                <Label>Data de Término</Label>
+                <Label>Data de Término (Automático)</Label>
                 <Input
-                  type="datetime-local"
+                  type="date"
                   value={trainingData.endDate}
-                  onChange={(e) => {
-                    setTrainingData({ ...trainingData, endDate: e.target.value });
-                    setIsTrainingDirty(true);
-                  }}
+                  readOnly
+                  disabled
+                  className="bg-muted cursor-default"
                 />
               </div>
               <div className="space-y-2 col-span-2 lg:col-span-1">
@@ -1470,8 +1621,6 @@ export function Treinamentos() {
                     {trainingModules.map((mod, index) => (
                       <TabsContent key={mod.id} value={mod.id} className="space-y-4">
                         <Card className="p-4 border shadow-sm space-y-5">
-
-                          {/* Preview do label */}
                           <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                             <span className="text-xs text-muted-foreground">Label exibido:</span>
                             <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">
@@ -1479,7 +1628,6 @@ export function Treinamentos() {
                             </span>
                           </div>
 
-                          {/* Nome opcional */}
                           <div className="space-y-1.5">
                             <Label>Nome do Módulo <span className="text-muted-foreground font-normal text-xs">(opcional)</span></Label>
                             <Input
@@ -1494,7 +1642,6 @@ export function Treinamentos() {
                             />
                           </div>
 
-                          {/* Descrição */}
                           <div className="space-y-1.5">
                             <Label>Descrição do Módulo <span className="text-muted-foreground font-normal text-xs">(visível apenas nos treinamentos)</span></Label>
                             <Textarea
@@ -1510,7 +1657,6 @@ export function Treinamentos() {
                             />
                           </div>
 
-                          {/* Data e hora (apenas se não tiver aulas) */}
                           {mod.aulas.length === 0 && (
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1 border-t">
                               <div className="space-y-1.5">
@@ -1524,6 +1670,7 @@ export function Treinamentos() {
                                     setTrainingModules(m);
                                     setIsTrainingDirty(true);
                                   }}
+                                  onBlur={() => validateAndReset(index, null)}
                                 />
                               </div>
                               <div className="space-y-1.5">
@@ -1537,6 +1684,7 @@ export function Treinamentos() {
                                     setTrainingModules(m);
                                     setIsTrainingDirty(true);
                                   }}
+                                  onBlur={() => validateAndReset(index, null)}
                                 />
                               </div>
                               <div className="space-y-1.5">
@@ -1550,25 +1698,22 @@ export function Treinamentos() {
                                     setTrainingModules(m);
                                     setIsTrainingDirty(true);
                                   }}
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="flex items-center gap-1.5 text-xs">Duração(min)</Label>
-                                <Input
-                                  type="number"
-                                  value={mod.duracao_minutos}
-                                  onChange={(e) => {
-                                    const m = [...trainingModules];
-                                    m[index] = { ...m[index], duracao_minutos: e.target.value ? Number(e.target.value) : "" };
-                                    setTrainingModules(m);
-                                    setIsTrainingDirty(true);
+                                  onBlur={() => {
+                                      if (!mod.hora_inicio) return;
+                                      const start = new Date(`${mod.data_aula || '2000-01-01'}T${mod.hora_inicio}`);
+                                      const end = new Date(`${mod.data_aula || '2000-01-01'}T${mod.hora_fim}`);
+                                      if (end <= start) {
+                                          const m = [...trainingModules];
+                                          const [h, min_v] = mod.hora_inicio.split(":").map(Number);
+                                          m[index].hora_fim = `${String((h + 1) % 24).padStart(2, '0')}:${String(min_v).padStart(2, '0')}`;
+                                          setTrainingModules(m);
+                                      }
                                   }}
                                 />
                               </div>
                             </div>
                           )}
 
-                          {/* Seção de Aulas */}
                           <div className="border-t pt-4 space-y-3">
                             <div className="flex items-center justify-between">
                               <div>
@@ -1584,16 +1729,28 @@ export function Treinamentos() {
                                 size="sm"
                                 className="gap-1.5"
                                 onClick={() => {
+                                  const prev = getPrevEndPoint(index, mod.aulas.length, trainingModules);
+                                  let defaultStart = "09:00";
+                                  let defaultDate = mod.data_aula || "";
+                                  
+                                  if (prev) {
+                                    const min = new Date(new Date(`${prev.date}T${prev.time}`).getTime() + 60000);
+                                    defaultDate = min.toISOString().split("T")[0];
+                                    defaultStart = min.toTimeString().slice(0, 5);
+                                  }
+
+                                  const [h, m_val] = defaultStart.split(":").map(Number);
+                                  const defaultEnd = `${String((h + 1) % 24).padStart(2, '0')}:${String(m_val).padStart(2, '0')}`;
+
                                   const m = [...trainingModules];
                                   m[index] = {
                                     ...m[index],
                                     data_aula: "",
                                     hora_inicio: "",
                                     hora_fim: "",
-                                    duracao_minutos: "",
                                     aulas: [
                                       ...m[index].aulas,
-                                      { ordem: m[index].aulas.length, data_aula: "", hora_inicio: "", hora_fim: "", duracao_minutos: "" },
+                                      { ordem: m[index].aulas.length, data_aula: defaultDate, hora_inicio: defaultStart, hora_fim: defaultEnd },
                                     ],
                                   };
                                   setTrainingModules(m);
@@ -1628,6 +1785,7 @@ export function Treinamentos() {
                                           setTrainingModules(m);
                                           setIsTrainingDirty(true);
                                         }}
+                                        onBlur={() => validateAndReset(index, pi)}
                                         className="h-8 text-sm"
                                       />
                                     </div>
@@ -1644,6 +1802,7 @@ export function Treinamentos() {
                                           setTrainingModules(m);
                                           setIsTrainingDirty(true);
                                         }}
+                                        onBlur={() => validateAndReset(index, pi)}
                                         className="h-8 text-sm"
                                       />
                                     </div>
@@ -1660,21 +1819,17 @@ export function Treinamentos() {
                                           setTrainingModules(m);
                                           setIsTrainingDirty(true);
                                         }}
-                                        className="h-8 text-sm"
-                                      />
-                                    </div>
-                                    <div className="flex-1 min-w-[120px] space-y-1">
-                                      <Label className="text-xs">Duração(min)</Label>
-                                      <Input
-                                        type="number"
-                                        value={aula.duracao_minutos}
-                                        onChange={(e) => {
-                                          const m = [...trainingModules];
-                                          const aulas = [...m[index].aulas];
-                                          aulas[pi] = { ...aulas[pi], duracao_minutos: e.target.value ? Number(e.target.value) : "" };
-                                          m[index] = { ...m[index], aulas };
-                                          setTrainingModules(m);
-                                          setIsTrainingDirty(true);
+                                        onBlur={() => {
+                                            const start = new Date(`${aula.data_aula}T${aula.hora_inicio}`);
+                                            const end = new Date(`${aula.data_aula}T${aula.hora_fim}`);
+                                            if (end <= start) {
+                                                const m = [...trainingModules];
+                                                const aulas = [...m[index].aulas];
+                                                const [h, min] = aula.hora_inicio.split(":").map(Number);
+                                                aulas[pi].hora_fim = `${String((h+1)%24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+                                                m[index].aulas = aulas;
+                                                setTrainingModules(m);
+                                            }
                                         }}
                                         className="h-8 text-sm"
                                       />
@@ -1688,12 +1843,10 @@ export function Treinamentos() {
                                         const aulas = m[index].aulas.filter((_, i) => i !== pi)
                                           .map((p, i) => ({ ...p, ordem: i }));
                                         m[index] = { ...m[index], aulas };
-                                        // Se não sobrou aula, limpa campos
                                         if (aulas.length === 0) {
                                           m[index].data_aula = "";
                                           m[index].hora_inicio = "";
                                           m[index].hora_fim = "";
-                                          m[index].duracao_minutos = "";
                                         }
                                         setTrainingModules(m);
                                         setIsTrainingDirty(true);
@@ -1706,7 +1859,6 @@ export function Treinamentos() {
                               </div>
                             )}
                           </div>
-
                         </Card>
                       </TabsContent>
                     ))}
@@ -1818,7 +1970,6 @@ export function Treinamentos() {
 
                   <div className="border-t pt-8"></div>
 
-                  {/* SEÇÃO DE EMPRESAS PARTICIPANTES (AUTOMÁTICA) */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -1908,13 +2059,13 @@ export function Treinamentos() {
           <AlertDialogHeader>
             <AlertDialogTitle>Revisar Dados</AlertDialogTitle>
             <AlertDialogDescription>
-              Você está prestes a criar o treinamento "{trainingData.name || 'Sem nome'}" com {trainingModules.length} módulo(s). Confirma as informações originais?
+              Você está prestes a criar o treinamento "{trainingData.name || 'Sem nome'}" com {trainingModules.length} módulo(s). Confirma as informações?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Revisar form</AlertDialogCancel>
             <AlertDialogAction onClick={confirmSaveTraining}>
-              Confirmar e Criar
+              Confirmar e Salvar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2155,7 +2306,6 @@ export function Treinamentos() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

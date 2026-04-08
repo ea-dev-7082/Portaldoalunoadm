@@ -144,7 +144,32 @@ function calcMediaAluno(aluno: AlunoCompleto, modulos: ModuloTreinamento[]): str
   return avg.toFixed(1);
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// ─── Utilities ─────────────────────────────────────────────────────────────
+
+const formatCPF = (v: string) => {
+  const digits = v.replace(/\D/g, "").slice(0, 11);
+  return digits
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d{1,2})/, "$1-$2")
+    .replace(/(-\d{2})\d+?$/, "$1");
+};
+
+const formatPhone = (v: string) => {
+  const digits = v.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 10) {
+    return digits
+      .replace(/(\d{2})(\d)/, "($1) $2")
+      .replace(/(\d{4})(\d)/, "$1-$2");
+  }
+  return digits
+    .replace(/(\d{2})(\d)/, "($1) $2")
+    .replace(/(\d{5})(\d)/, "$1-$2");
+};
+
+const onlyDigits = (v: string) => v.replace(/\D/g, "");
+
+// ─── Components ────────────────────────────────────────────────────────────────
 
 export function Alunos() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -300,10 +325,11 @@ export function Alunos() {
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({
           ...selectedStudent,
+          cpf: onlyDigits(selectedStudent.cpf),
           cargo: selectedStudent.cargo || null,
           id_empresa: selectedStudent.id_empresa || null,
           email: selectedStudent.email || null,
-          telefone: selectedStudent.telefone || null,
+          telefone: onlyDigits(selectedStudent.telefone || ""),
           data_nascimento: selectedStudent.data_nascimento || null,
         }),
       });
@@ -618,11 +644,11 @@ export function Alunos() {
                       onClick={() => handleRowClick(student)}
                     >
                       <TableCell className="font-medium">{student.nome}</TableCell>
-                      <TableCell className="text-muted-foreground">{student.cpf}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatCPF(student.cpf)}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{student.empresa?.nome || "Independente"}</Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{student.telefone || "-"}</TableCell>
+                      <TableCell className="text-muted-foreground">{formatPhone(student.telefone || "") || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">{student.email || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {student.data_nascimento
@@ -898,7 +924,7 @@ export function Alunos() {
                         </td>
                         {/* Telefone */}
                         <td className="border border-border px-3 py-2 text-muted-foreground whitespace-nowrap">
-                          {aluno.telefone || "-"}
+                          {formatPhone(aluno.telefone || "") || "-"}
                         </td>
 
                         {/* Células por módulo */}
@@ -1145,14 +1171,14 @@ export function Alunos() {
                   <Label className="text-muted-foreground text-xs uppercase">CPF</Label>
                   {isEditingStudent ? (
                     <Input
-                      value={selectedStudent.cpf}
+                      value={formatCPF(selectedStudent.cpf)}
                       onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, cpf: e.target.value });
+                        setSelectedStudent({ ...selectedStudent, cpf: formatCPF(e.target.value) });
                         setIsStudentDirty(true);
                       }}
                     />
                   ) : (
-                    <p className="font-medium">{selectedStudent.cpf}</p>
+                    <p className="font-medium">{formatCPF(selectedStudent.cpf)}</p>
                   )}
                 </div>
 
@@ -1212,14 +1238,14 @@ export function Alunos() {
                   <Label className="text-muted-foreground text-xs uppercase">Telefone</Label>
                   {isEditingStudent ? (
                     <Input
-                      value={selectedStudent.telefone || ""}
+                      value={formatPhone(selectedStudent.telefone || "")}
                       onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, telefone: e.target.value });
+                        setSelectedStudent({ ...selectedStudent, telefone: formatPhone(e.target.value) });
                         setIsStudentDirty(true);
                       }}
                     />
                   ) : (
-                    <p className="font-medium">{selectedStudent.telefone || "-"}</p>
+                    <p className="font-medium">{formatPhone(selectedStudent.telefone || "") || "-"}</p>
                   )}
                 </div>
 
