@@ -112,6 +112,8 @@ interface Presenca {
   pontualidade: string | null;
   camera_aberta: boolean;
   participacao: boolean;
+  presenca: boolean;
+  justificativa_falta: boolean;
   nota: number | null;
 }
 
@@ -375,6 +377,12 @@ export function Alunos() {
   // ── Visualização Completa ─────────────────────────────────────────────────
   const [treinamentos, setTreinamentos] = useState<Treinamento[]>([]);
   const [selectedTreinamento, setSelectedTreinamento] = useState<string>("");
+  const [trainingSearch, setTrainingSearch] = useState("");
+  const [showTrainingDropdown, setShowTrainingDropdown] = useState(false);
+  const [filterYear, setFilterYear] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterDateType, setFilterDateType] = useState<"inicio" | "fim">("inicio");
+  
   const [modulos, setModulos] = useState<ModuloTreinamento[]>([]);
   const [alunosCompletos, setAlunosCompletos] = useState<AlunoCompleto[]>([]);
   const [isLoadingCompleta, setIsLoadingCompleta] = useState(false);
@@ -461,6 +469,8 @@ export function Alunos() {
         pontualidade: null,
         camera_aberta: true,
         participacao: false,
+        presenca: false,
+        justificativa_falta: false,
         nota: null,
       };
     }
@@ -673,74 +683,156 @@ export function Alunos() {
       {/* ── Visualização Completa ────────────────────────────────────────────── */}
       {viewMode === "completa" && (
         <div className="space-y-4">
-          {/* Seletor de treinamento + botões de modo edição */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="flex items-center gap-3 flex-1">
-              <GraduationCap className="w-5 h-5 text-muted-foreground shrink-0" />
-              <Select
-                value={selectedTreinamento}
-                onValueChange={(v) => {
-                  setSelectedTreinamento(v);
-                  setIsEditingPlanilha(false);
-                  setEditedPresencas({});
-                }}
-              >
-                <SelectTrigger className="w-full max-w-xs">
-                  <SelectValue placeholder="Selecione um treinamento..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {treinamentos.map((t) => (
-                    <SelectItem key={t.id_treinamento} value={t.id_treinamento}>
-                      {t.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedTreinamento && !isLoadingCompleta && (
-                <span className="text-sm text-muted-foreground">
-                  {filteredAlunosCompletos.length} aluno(s) · {modulos.length} módulo(s)
-                </span>
-              )}
+          {/* Barra de Busca e Filtros de Treinamento */}
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+              {/* Busca de Treinamento */}
+              <div className="md:col-span-2 relative">
+                <Label className="text-xs mb-1.5 block">Treinamento</Label>
+                <div className="relative">
+                  <SearchInput
+                    placeholder="Pesquisar treinamento..."
+                    value={trainingSearch}
+                    onChange={(e) => {
+                      setTrainingSearch(e.target.value);
+                      setShowTrainingDropdown(true);
+                      if (!e.target.value && selectedTreinamento) {
+                        setSelectedTreinamento("");
+                      }
+                    }}
+                    onFocus={() => setShowTrainingDropdown(true)}
+                  />
+                  {showTrainingDropdown && trainingSearch.length > 0 && (
+                    <Card className="absolute z-50 w-full mt-1 max-h-[300px] overflow-auto shadow-xl border-blue-500/20">
+                      <div className="p-1">
+                        {treinamentos
+                          .filter(t => t.nome.toLowerCase().includes(trainingSearch.toLowerCase()))
+                          .map((t) => (
+                            <div
+                              key={t.id_treinamento}
+                              className="px-3 py-2 cursor-pointer hover:bg-blue-500/10 rounded-md text-sm flex items-center justify-between group"
+                              onClick={() => {
+                                setSelectedTreinamento(t.id_treinamento);
+                                setTrainingSearch(t.nome);
+                                setShowTrainingDropdown(false);
+                              }}
+                            >
+                              <span>{t.nome}</span>
+                              <Badge variant="outline" className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
+                                Selecionar
+                              </Badge>
+                            </div>
+                          ))}
+                        {treinamentos.filter(t => t.nome.toLowerCase().includes(trainingSearch.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-4 text-center text-muted-foreground italic text-sm">
+                            Nenhum treinamento encontrado.
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  )}
+                </div>
+              </div>
+
+              {/* Filtro Ano */}
+              <div className="space-y-1">
+                <Label className="text-xs">Ano</Label>
+                <Select value={filterYear} onValueChange={setFilterYear}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Ano" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os anos</SelectItem>
+                    <SelectItem value="2024">2024</SelectItem>
+                    <SelectItem value="2025">2025</SelectItem>
+                    <SelectItem value="2026">2026</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtro Mês */}
+              <div className="space-y-1">
+                <Label className="text-xs">Mês</Label>
+                <Select value={filterMonth} onValueChange={setFilterMonth}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os meses</SelectItem>
+                    <SelectItem value="01">Janeiro</SelectItem>
+                    <SelectItem value="02">Fevereiro</SelectItem>
+                    <SelectItem value="03">Março</SelectItem>
+                    <SelectItem value="04">Abril</SelectItem>
+                    <SelectItem value="05">Maio</SelectItem>
+                    <SelectItem value="06">Junho</SelectItem>
+                    <SelectItem value="07">Julho</SelectItem>
+                    <SelectItem value="08">Agosto</SelectItem>
+                    <SelectItem value="09">Setembro</SelectItem>
+                    <SelectItem value="10">Outubro</SelectItem>
+                    <SelectItem value="11">Novembro</SelectItem>
+                    <SelectItem value="12">Dezembro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Botões de edição — só aparecem se houver treinamento selecionado e alunos */}
-            {selectedTreinamento && alunosCompletos.length > 0 && (
-              <div className="flex items-center gap-2 shrink-0">
-                {isEditingPlanilha ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1.5 border-destructive text-destructive hover:bg-destructive/10"
-                      onClick={handleCancelPlanilha}
-                      disabled={isSavingPlanilha}
-                    >
-                      <X className="w-4 h-4" />
-                      Cancelar
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={handleSavePlanilha}
-                      disabled={isSavingPlanilha}
-                    >
-                      <Save className="w-4 h-4" />
-                      {isSavingPlanilha ? "Salvando..." : "Salvar Alterações"}
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={handleEnterEditPlanilha}
-                  >
-                    <Pencil className="w-4 h-4" />
-                    Editar
-                  </Button>
-                )}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-muted/30 p-3 rounded-lg border border-border/50">
+              <div className="flex items-center gap-4">
+                <Label className="text-xs font-semibold uppercase opacity-70">Filtrar por data de:</Label>
+                <RadioGroup
+                  value={filterDateType}
+                  onValueChange={(v) => setFilterDateType(v as any)}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="inicio" id="dt-inicio" />
+                    <Label htmlFor="dt-inicio" className="text-xs cursor-pointer">Início</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="fim" id="dt-fim" />
+                    <Label htmlFor="dt-fim" className="text-xs cursor-pointer">Encerramento</Label>
+                  </div>
+                </RadioGroup>
               </div>
-            )}
+
+              {selectedTreinamento && alunosCompletos.length > 0 && (
+                <div className="flex items-center gap-2">
+                  {isEditingPlanilha ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={handleCancelPlanilha}
+                        disabled={isSavingPlanilha}
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Descartar
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20"
+                        onClick={handleSavePlanilha}
+                        disabled={isSavingPlanilha}
+                      >
+                        <Save className="w-4 h-4 mr-1" />
+                        {isSavingPlanilha ? "Salvando..." : "Salvar Chamada"}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-blue-500/30 text-blue-600 hover:bg-blue-500/5"
+                      onClick={handleEnterEditPlanilha}
+                    >
+                      <Pencil className="w-4 h-4 mr-1" />
+                      Editar Chamada
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Aviso de modo edição */}
@@ -804,7 +896,10 @@ export function Alunos() {
                       {/* Cabeçalhos de módulos */}
                       {modulos.map((m, idx) => {
                         const hasMultipleAulas = m.aulas && m.aulas.length > 1;
-                        const colSpan = hasMultipleAulas ? (m.aulas!.length * 3) + 1 : 4;
+                        // Presenca, Pont, Status, Apareceu, Justif, Cam, Part = 7 colunas por aula
+                        // + Nota no final do modulo
+                        const colCountPerAula = 7;
+                        const colSpan = hasMultipleAulas ? (m.aulas!.length * colCountPerAula) + 1 : colCountPerAula + 1;
                         
                         const label = m.modulo?.nome?.trim()
                           ? `Módulo ${toRoman(idx + 1)} — ${m.modulo.nome.trim()}`
@@ -836,71 +931,38 @@ export function Alunos() {
                     {/* Linha 2: subcolunas */}
                     <tr>
                       {modulos.map((m) => {
-                         const hasMultipleAulas = m.aulas && m.aulas.length > 1;
-                         if (hasMultipleAulas) {
-                            return (
-                              <>
-                                {m.aulas!.sort((a,b) => a.ordem - b.ordem).map((aula, aIdx) => (
-                                  <>
-                                    <th
-                                      key={`${m.id_modulo}-${aula.id_aula}-pont`}
-                                      className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[80px]"
-                                    >
-                                      Pont. (A{aIdx+1})
-                                    </th>
-                                    <th
-                                      key={`${m.id_modulo}-${aula.id_aula}-cam`}
-                                      className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[60px]"
-                                    >
-                                      Câm. (A{aIdx+1})
-                                    </th>
-                                    <th
-                                      key={`${m.id_modulo}-${aula.id_aula}-part`}
-                                      className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[50px]"
-                                    >
-                                      Part. (A{aIdx+1})
-                                    </th>
-                                  </>
-                                ))}
-                                <th
-                                  key={`${m.id_modulo}-nota`}
-                                  className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]"
-                                >
-                                  Nota
-                                </th>
-                              </>
-                            );
-                         } else {
-                            // Single or zero aulas
-                            return (
-                              <>
-                                <th
-                                  key={`${m.id_modulo}-pont`}
-                                  className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[80px]"
-                                >
-                                  Pontualidade
-                                </th>
-                                <th
-                                  key={`${m.id_modulo}-cam`}
-                                  className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[60px]"
-                                >
-                                  Câmera
-                                </th>
-                                <th
-                                  key={`${m.id_modulo}-part`}
-                                  className="border border-border bg-muted/40 px-2 py-1.5 text-center text-xs font-medium text-muted-foreground whitespace-nowrap min-w-[50px]"
-                                >
-                                  Part.
-                                </th>
-                                <th
-                                  key={`${m.id_modulo}-nota`}
-                                  className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]"
-                                >
-                                  Nota
-                                </th>
-                              </>
-                            );
-                         }
+                        const hasMultipleAulas = m.aulas && m.aulas.length > 1;
+                        const renderCols = (id: string, labelSuffix: string = "") => (
+                          <React.Fragment key={`${id}-cols`}>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Pres.{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[70px]">Entrada{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[70px]">Status{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Apar.{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Just.{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Câm.{labelSuffix}</th>
+                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Part.{labelSuffix}</th>
+                          </React.Fragment>
+                        );
+
+                        if (hasMultipleAulas) {
+                          return (
+                            <React.Fragment key={m.id_modulo}>
+                              {m.aulas!.sort((a,b) => a.ordem - b.ordem).map((aula, aIdx) => (
+                                <React.Fragment key={`${m.id_modulo}-${aula.id_aula}`}>
+                                  {renderCols(aula.id_aula, ` (A${aIdx+1})`)}
+                                </React.Fragment>
+                              ))}
+                              <th className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]">Nota</th>
+                            </React.Fragment>
+                          );
+                        } else {
+                          return (
+                            <React.Fragment key={m.id_modulo}>
+                              {renderCols(m.id_modulo)}
+                              <th className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]">Nota</th>
+                            </React.Fragment>
+                          );
+                        }
                       })}
                     </tr>
                   </thead>
@@ -932,89 +994,136 @@ export function Alunos() {
                           const hasMultipleAulas = m.aulas && m.aulas.length > 1;
                           const isEditing = isEditingPlanilha;
                           
-                          const renderPresencaFields = (presenca: Presenca | undefined, idAula: string | undefined) => (
-                            <>
-                              {/* Pontualidade */}
-                              <td key={`${aluno.id_aluno}-${m.id_modulo}-${idAula || 'single'}-pont`} className="border border-border px-2 py-1.5 text-center">
-                                {isEditing ? (
-                                  <input
-                                    type="time"
-                                    value={presenca?.pontualidade?.slice(0, 5) ?? ""}
-                                    onChange={(e) =>
-                                      updatePresenca(
-                                        aluno.id_aluno,
-                                        m.id_modulo,
-                                        idAula,
-                                        "pontualidade",
-                                        e.target.value || null
-                                      )
-                                    }
-                                    className="w-full bg-background border border-input rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+                          const renderPresencaFields = (presenca: Presenca | undefined, idAula: string | undefined, horaInicioOficial: string | null) => {
+                            // PONTUALIDADE LOGIC
+                            // Regras: 
+                            // 1. Chegou antes ou igual ao horário = pontual
+                            // 2. Chegou > inicio + atraso (5 min default) = atrasado
+                            // 3. Chegou > inicio + falta (15 min default) = falta
+                            
+                            const toleranceAtraso = 5;
+                            const toleranceFalta = 15;
+                            
+                            let status = "is-empty";
+                            let showApareceuPosHorario = false;
+                            
+                            if (presenca?.pontualidade && horaInicioOficial) {
+                              const [entryH, entryM] = presenca.pontualidade.split(":").map(Number);
+                              const [startH, startM] = horaInicioOficial.split(":").map(Number);
+                              
+                              const entryTotal = entryH * 60 + entryM;
+                              const startTotal = startH * 60 + startM;
+                              
+                              const diff = entryTotal - startTotal;
+                              
+                              if (diff <= 0) status = "pontual";
+                              else if (diff <= toleranceAtraso) status = "atrasado";
+                              else {
+                                status = "falta-tardia";
+                                showApareceuPosHorario = true;
+                              }
+                            } else if (!presenca?.presenca && presenca?.id_presenca) {
+                               status = "falta";
+                            }
+
+                            return (
+                              <React.Fragment key={`${aluno.id_aluno}-${m.id_modulo}-${idAula || 'single'}`}>
+                                {/* Presença */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  <Checkbox
+                                    checked={presenca?.presenca ?? false}
+                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "presenca", Boolean(v))}
+                                    disabled={!isEditing}
+                                    className="scale-90"
                                   />
-                                ) : (
-                                  <span className="text-sm tabular-nums">
-                                    {presenca?.pontualidade?.slice(0, 5) ?? "-"}
-                                  </span>
-                                )}
-                              </td>
+                                </td>
 
-                              {/* Câmera */}
-                              <td key={`${aluno.id_aluno}-${m.id_modulo}-${idAula || 'single'}-cam`} className="border border-border px-2 py-1.5 text-center">
-                                {isEditing ? (
-                                  <div className="flex justify-center">
-                                    <Checkbox
-                                      checked={presenca?.camera_aberta ?? true}
-                                      onCheckedChange={(v) =>
-                                        updatePresenca(
-                                          aluno.id_aluno,
-                                          m.id_modulo,
-                                          idAula,
-                                          "camera_aberta",
-                                          Boolean(v)
-                                        )
-                                      }
-                                    />
-                                  </div>
-                                ) : (
-                                  <span className={`text-xs font-medium ${presenca?.camera_aberta ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                                    {presenca?.camera_aberta ? "✓" : "✗"}
-                                  </span>
-                                )}
-                              </td>
+                                {/* Entrada */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  {isEditing ? (
+                                    <input
+                                      type="time"
+                                      value={presenca?.pontualidade?.slice(0, 5) ?? ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        // Auto-mark presence/absence logic if late
+                                        let updatedPresencaValue = true;
+                                        if (val && horaInicioOficial) {
+                                          const [eh, em] = val.split(":").map(Number);
+                                          const [sh, sm] = horaInicioOficial.split(":").map(Number);
+                                          if ((eh * 60 + em) > (sh * 60 + sm + toleranceFalta)) {
+                                            updatedPresencaValue = false;
+                                          }
+                                        }
 
-                              {/* Participação */}
-                              <td key={`${aluno.id_aluno}-${m.id_modulo}-${idAula || 'single'}-part`} className="border border-border px-2 py-1.5 text-center">
-                                {isEditing ? (
-                                  <div className="flex justify-center">
-                                    <Checkbox
-                                      checked={presenca?.participacao ?? false}
-                                      onCheckedChange={(v) =>
-                                        updatePresenca(
-                                          aluno.id_aluno,
-                                          m.id_modulo,
-                                          idAula,
-                                          "participacao",
-                                          Boolean(v)
-                                        )
-                                      }
+                                        updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "pontualidade", val || null);
+                                        updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "presenca", updatedPresencaValue);
+                                      }}
+                                      className="w-full bg-background border border-input rounded px-0.5 py-0.5 text-[10px] text-center focus:outline-none focus:ring-1 focus:ring-ring"
                                     />
-                                  </div>
-                                ) : (
-                                  <span className={`text-xs font-medium ${presenca?.participacao ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}>
-                                    {presenca?.participacao ? "✓" : "✗"}
-                                  </span>
-                                )}
-                              </td>
-                            </>
-                          );
+                                  ) : (
+                                    <span className="text-[10px] tabular-nums">{presenca?.pontualidade?.slice(0, 5) ?? "-"}</span>
+                                  )}
+                                </td>
+
+                                {/* Status Pontualidade */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  {status === "pontual" && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[9px] h-4 py-0">Pontual</Badge>}
+                                  {status === "atrasado" && <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[9px] h-4 py-0">Atrasado</Badge>}
+                                  {status === "falta-tardia" && <Badge className="bg-red-500/10 text-red-600 border-red-500/20 text-[9px] h-4 py-0">Falta/Tardia</Badge>}
+                                  {status === "falta" && <Badge variant="outline" className="text-[9px] h-4 py-0 text-muted-foreground">Falta</Badge>}
+                                  {status === "is-empty" && <span className="text-[9px] text-muted-foreground opacity-30">—</span>}
+                                </td>
+
+                                {/* Apareceu Pós Horário */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  <Checkbox
+                                    checked={showApareceuPosHorario}
+                                    disabled={true} // Visual feature only
+                                    className="scale-75 opacity-70"
+                                  />
+                                </td>
+
+                                {/* Justificativa Falta */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  <Checkbox
+                                    checked={presenca?.justificativa_falta ?? false}
+                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "justificativa_falta", Boolean(v))}
+                                    disabled={!isEditing}
+                                    className="scale-90"
+                                  />
+                                </td>
+
+                                {/* Câmera */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  <Checkbox
+                                    checked={presenca?.camera_aberta ?? true}
+                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "camera_aberta", Boolean(v))}
+                                    disabled={!isEditing}
+                                    className="scale-90"
+                                  />
+                                </td>
+
+                                {/* Participação */}
+                                <td className="border border-border px-1 py-1 text-center">
+                                  <Checkbox
+                                    checked={presenca?.participacao ?? false}
+                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "participacao", Boolean(v))}
+                                    disabled={!isEditing}
+                                    className="scale-90"
+                                  />
+                                </td>
+                              </React.Fragment>
+                            );
+                          };
 
                           if (hasMultipleAulas) {
-                             const moduloPresenca = getPresenca(aluno.id_aluno, m.id_modulo); // Pega apenas a nota, ou a primeira do modulo
+                             const moduloPresenca = getPresenca(aluno.id_aluno, m.id_modulo);
                              return (
                                <>
                                  {m.aulas!.sort((a,b) => a.ordem - b.ordem).map((aula) => {
                                     const presencaAula = getPresenca(aluno.id_aluno, m.id_modulo, aula.id_aula);
-                                    return renderPresencaFields(presencaAula, aula.id_aula);
+                                    return renderPresencaFields(presencaAula, aula.id_aula, aula.hora_inicio);
                                  })}
                                  {/* Nota do modulo */}
                                  <td key={`${aluno.id_aluno}-${m.id_modulo}-nota`} className="border border-border bg-indigo-50/30 dark:bg-indigo-900/10 px-2 py-1.5 text-center">
@@ -1026,33 +1135,24 @@ export function Alunos() {
                                       step={0.1}
                                       value={moduloPresenca?.nota ?? ""}
                                       onChange={(e) =>
-                                        updatePresenca(
-                                          aluno.id_aluno,
-                                          m.id_modulo,
-                                          undefined,
-                                          "nota",
-                                          e.target.value !== "" ? parseFloat(e.target.value) : null
-                                        )
+                                        updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value !== "" ? parseFloat(e.target.value) : null)
                                       }
                                       placeholder="-"
-                                      className="w-14 bg-background border border-input rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+                                      className="w-12 bg-background border border-input rounded px-0.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
                                     />
                                   ) : (
                                     <span className="text-sm tabular-nums font-semibold">
-                                      {moduloPresenca?.nota !== null && moduloPresenca?.nota !== undefined
-                                        ? Number(moduloPresenca.nota).toFixed(1)
-                                        : "-"}
+                                      {moduloPresenca?.nota !== null && moduloPresenca?.nota !== undefined ? Number(moduloPresenca.nota).toFixed(1) : "-"}
                                     </span>
                                   )}
                                 </td>
                                </>
                              );
                           } else {
-                            // Single or zero aulas
                             const presenca = getPresenca(aluno.id_aluno, m.id_modulo);
                             return (
                               <>
-                                {renderPresencaFields(presenca, undefined)}
+                                {renderPresencaFields(presenca, undefined, m.hora_inicio)}
                                 {/* Nota */}
                                 <td key={`${aluno.id_aluno}-${m.id_modulo}-nota`} className="border border-border bg-indigo-50/30 dark:bg-indigo-900/10 px-2 py-1.5 text-center">
                                   {isEditing ? (
@@ -1063,22 +1163,14 @@ export function Alunos() {
                                       step={0.1}
                                       value={presenca?.nota ?? ""}
                                       onChange={(e) =>
-                                        updatePresenca(
-                                          aluno.id_aluno,
-                                          m.id_modulo,
-                                          undefined,
-                                          "nota",
-                                          e.target.value !== "" ? parseFloat(e.target.value) : null
-                                        )
+                                        updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value !== "" ? parseFloat(e.target.value) : null)
                                       }
                                       placeholder="-"
-                                      className="w-14 bg-background border border-input rounded px-1 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
+                                      className="w-12 bg-background border border-input rounded px-0.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
                                     />
                                   ) : (
                                     <span className="text-sm tabular-nums font-semibold">
-                                      {presenca?.nota !== null && presenca?.nota !== undefined
-                                        ? Number(presenca.nota).toFixed(1)
-                                        : "-"}
+                                      {presenca?.nota !== null && presenca?.nota !== undefined ? Number(presenca.nota).toFixed(1) : "-"}
                                     </span>
                                   )}
                                 </td>

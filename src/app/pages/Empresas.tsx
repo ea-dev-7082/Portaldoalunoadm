@@ -142,6 +142,16 @@ export function Empresas() {
     return `${raw.slice(0, 3)}.${raw.slice(3, 6)}.${raw.slice(6, 9)}-${raw.slice(9, 11)}`;
   };
 
+  const formatPhone = (val: string) => {
+    const raw = (val || "").replace(/\D/g, "");
+    if (raw.length <= 10) {
+      return raw.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, "($1) $2-$3").trim();
+    }
+    return raw.replace(/^(\d{2})(\d{5})(\d{0,4}).*/, "($1) $2-$3").trim();
+  };
+
+  const onlyDigits = (val: string) => (val || "").replace(/\D/g, "");
+
   // ─── Fetch ──────────────────────────────────────────────────────────────────
   const fetchEmpresas = useCallback(async () => {
     try {
@@ -171,7 +181,13 @@ export function Empresas() {
       );
       if (resPlans.ok) {
         const plans = await resPlans.json();
-        setAllParcerias(plans.map((p: any) => ({ ...p, id_parceria: p.id_plano || p.id_parceria || "" })));
+        const orderMap: Record<string, number> = { "PLUS": 1, "PREMIUM": 2, "BLACK": 3 };
+        const sortedPlans = plans.sort((a: any, b: any) => {
+          const nameA = (a.nome || "").toUpperCase();
+          const nameB = (b.nome || "").toUpperCase();
+          return (orderMap[nameA] || 99) - (orderMap[nameB] || 99);
+        });
+        setAllParcerias(sortedPlans.map((p: any) => ({ ...p, id_parceria: p.id_plano || p.id_parceria || "" })));
       }
       
       // 2. Regular partnerships
@@ -251,15 +267,27 @@ export function Empresas() {
         if (finalVal) filled.push(key);
       };
 
-      let rawNome = (data.fantasia || data.nome || data.razao_social || "").toString();
-      rawNome = rawNome.replace(/^\d+[\s.-]*/, "").toUpperCase();
+      // Prioriza Nome Fantasia, se não existir usa a Razão Social (nome/razao_social)
+      let rawNome = (
+        (data.fantasia && data.fantasia.trim() !== "") ? data.fantasia : 
+        (data.nome || data.razao_social || "")
+      ).toString();
+      
+      rawNome = rawNome.replace(/^\d+[\s.-]*/, "").trim().toUpperCase();
 
       // ReceitaWS traz o logradouro completo no campo 'logradouro'
-      // Mas se o objeto tiver 'tipo_logradouro' separado, combinamos para garantir.
-      let rawLogradouro = (data.logradouro || "").toString();
-      const tipo = (data.tipo_logradouro || "").toString();
+      // No entanto, BrasilAPI e outros trazem separado em fields como 'descricao_tipo_de_logradouro'
+      let rawLogradouro = (data.logradouro || data.street || "").toString().trim();
+      const tipo = (
+        data.descricao_tipo_de_logradouro || 
+        data.tipo_logradouro || 
+        data.tipo || 
+        data.type || 
+        ""
+      ).toString().trim();
+      
       if (tipo && !rawLogradouro.toUpperCase().startsWith(tipo.toUpperCase())) {
-          rawLogradouro = `${tipo} ${rawLogradouro}`;
+          rawLogradouro = `${tipo} ${rawLogradouro}`.trim();
       }
 
       set("nome", rawNome);
@@ -272,6 +300,18 @@ export function Empresas() {
       set("estado", (data.uf || "").toString());
 
       setFormData(prev => ({ ...prev, ...updates }));
+
+      // Adicione um contato padrão se a API trouxer telefone/email
+      const apiPhone = (data.telefone || data.ddd_telefone_1 || "").toString();
+      const apiEmail = (data.email || "").toString();
+      if (apiPhone || apiEmail) {
+        setContactSlots([{
+          nome: "CONTATO COMERCIAL",
+          setor: "COMERCIAL",
+          telefone: formatPhone(apiPhone),
+          email: apiEmail.toLowerCase()
+        }]);
+      }
       setFilledByCnpj(filled);
       setTimeout(() => setFilledByCnpj([]), 4000);
     } catch (e) { console.error(e); alert("Ocorreu um erro ao consultar o CNPJ."); }
@@ -488,7 +528,7 @@ export function Empresas() {
                 id_empresa: empresaId,
                 nome: s.nome,
                 setor: s.setor || null,
-                telefone: s.telefone || null,
+                telefone: onlyDigits(s.telefone),
                 email: s.email || null,
               }))
             ),
@@ -590,7 +630,7 @@ export function Empresas() {
         id_empresa: contactFormEmpresaId,
         nome: contactForm.nome,
         setor: contactForm.setor || null,
-        telefone: contactForm.telefone || null,
+        telefone: onlyDigits(contactForm.telefone),
         email: contactForm.email || null,
       };
       if (editingContact) {
@@ -1528,7 +1568,7 @@ export function Empresas() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs flex items-center gap-1"><Phone className="w-3 h-3" />Telefone</Label>
-                      <Input value={slot.telefone} onChange={(e) => updateContactSlot(idx, "telefone", e.target.value)} placeholder="(11) 99999-9999" />
+                      <Input value={slot.telefone} onChange={(e) => updateContactSlot(idx, "telefone", formatPhone(e.target.value))} placeholder="(11) 99999-9999" />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs flex items-center gap-1"><Mail className="w-3 h-3" />Email</Label>
@@ -1608,7 +1648,7 @@ export function Empresas() {
                 <Label>Telefone</Label>
                 <Input
                   value={contactForm.telefone}
-                  onChange={(e) => setContactForm(p => ({ ...p, telefone: e.target.value }))}
+                  onChange={(e) => setContactForm(p => ({ ...p, telefone: formatPhone(e.target.value) }))}
                   placeholder="(11) 99999-9999"
                 />
               </div>
