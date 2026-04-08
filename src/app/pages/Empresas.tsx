@@ -169,7 +169,10 @@ export function Empresas() {
         `${SUPABASE_URL}/rest/v1/formacao_planos?select=*&ativo=eq.true&order=nome`,
         { headers: restHeaders }
       );
-      if (resPlans.ok) setAllParcerias(await resPlans.json());
+      if (resPlans.ok) {
+        const plans = await resPlans.json();
+        setAllParcerias(plans.map((p: any) => ({ ...p, id_parceria: p.id_plano || p.id_parceria || "" })));
+      }
       
       // 2. Regular partnerships
       const resReg = await fetch(
@@ -230,20 +233,43 @@ export function Empresas() {
       const data = await resp.json();
       if (data.status === "ERROR") { alert(data.message || "CNPJ não encontrado."); return; }
 
+      console.log("CNPJ Lookup Result:", data); // Verifique no console do navegador (F12) o objeto bruto
+
       const filled: string[] = [];
       const updates: Partial<typeof emptyCompanyForm> = {};
 
-      const set = (key: keyof typeof emptyCompanyForm, val: string) => {
-        if (val) { (updates as any)[key] = val; filled.push(key); }
+      const set = (key: keyof typeof emptyCompanyForm, val: any) => {
+        let finalVal = val ? val.toString() : "";
+        if (key === "cep") finalVal = maskCEP(finalVal);
+        
+        // Padronização para maiúsculas em campos de texto de endereço
+        if (["logradouro", "bairro", "cidade", "estado"].includes(key)) {
+            finalVal = finalVal.toUpperCase();
+        }
+        
+        (updates as any)[key] = finalVal;
+        if (finalVal) filled.push(key);
       };
-      set("nome", data.fantasia || data.nome || "");
+
+      let rawNome = (data.fantasia || data.nome || data.razao_social || "").toString();
+      rawNome = rawNome.replace(/^\d+[\s.-]*/, "").toUpperCase();
+
+      // ReceitaWS traz o logradouro completo no campo 'logradouro'
+      // Mas se o objeto tiver 'tipo_logradouro' separado, combinamos para garantir.
+      let rawLogradouro = (data.logradouro || "").toString();
+      const tipo = (data.tipo_logradouro || "").toString();
+      if (tipo && !rawLogradouro.toUpperCase().startsWith(tipo.toUpperCase())) {
+          rawLogradouro = `${tipo} ${rawLogradouro}`;
+      }
+
+      set("nome", rawNome);
       set("cep", (data.cep || "").replace(/\D/g, ""));
-      set("logradouro", data.logradouro || "");
-      set("numero", data.numero || "");
-      set("complemento", data.complemento || "");
-      set("bairro", data.bairro || "");
-      set("cidade", data.municipio || "");
-      set("estado", data.uf || "");
+      set("logradouro", rawLogradouro);
+      set("numero", (data.numero || "").toString());
+      set("complemento", (data.complemento || "").toString());
+      set("bairro", (data.bairro || "").toString());
+      set("cidade", (data.municipio || data.localidade || "").toString());
+      set("estado", (data.uf || "").toString());
 
       setFormData(prev => ({ ...prev, ...updates }));
       setFilledByCnpj(filled);
@@ -263,10 +289,10 @@ export function Empresas() {
       if (!data.erro) {
         setFormData(prev => ({
           ...prev,
-          logradouro: data.logradouro,
-          bairro: data.bairro,
-          cidade: data.localidade,
-          estado: data.uf,
+          logradouro: data.logradouro || "",
+          bairro: (data.bairro || "").toUpperCase(),
+          cidade: (data.localidade || "").toUpperCase(),
+          estado: (data.uf || "").toUpperCase(),
         }));
       }
     } catch (e) { console.error(e); }
@@ -309,9 +335,9 @@ export function Empresas() {
     setIsEditing(true);
     setEditingId(company.id_empresa);
     setFormData({
-      nome: company.nome || "", cnpj: company.cnpj || "",
+      nome: company.nome || "", cnpj: maskCNPJ(company.cnpj || ""),
       isMatriz: company.is_matriz || false, id_matriz: company.id_matriz || "null",
-      cep: company.endereco?.cep || "", logradouro: company.endereco?.logradouro || "",
+      cep: maskCEP(company.endereco?.cep || ""), logradouro: company.endereco?.logradouro || "",
       numero: company.endereco?.numero || "", complemento: company.endereco?.complemento || "",
       bairro: company.endereco?.bairro || "", cidade: company.endereco?.cidade || "",
       estado: company.endereco?.estado || "",
@@ -356,9 +382,33 @@ export function Empresas() {
     setDeleteDialogOpen(true);
   };
 
+  const maskCNPJ = (val: string) => {
+    return val
+      .replace(/\D/g, "")
+      .replace(/^(\d{2})(\d)/, "$1.$2")
+      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/\.(\d{3})(\d)/, ".$1/$2")
+      .replace(/(\d{4})(\d)/, "$1-$2")
+      .substring(0, 18);
+  };
+  const maskCEP = (val: string) => {
+    return val
+      .replace(/\D/g, "")
+      .replace(/^(\d{5})(\d)/, "$1-$2")
+      .substring(0, 9);
+  };
+
   const handleFormData = (field: string, value: any) => {
     setFormData(prev => {
-      const next = { ...prev, [field]: value };
+      let finalValue = value;
+      if (field === "cep") {
+        finalValue = maskCEP(value);
+      } else if (field === "cnpj") {
+        finalValue = maskCNPJ(value);
+      } else if (field === "nome" || field === "cidade" || field === "bairro") {
+        finalValue = value.toString().toUpperCase();
+      }
+      const next = { ...prev, [field]: finalValue };
       if (field === "isMatriz" && value === true) next.id_matriz = "null";
       return next;
     });
@@ -371,12 +421,17 @@ export function Empresas() {
     try {
       const payload = {
         id_empresa: editingId,
-        nome: formData.nome, cnpj: formData.cnpj,
+        nome: formData.nome, 
+        cnpj: formData.cnpj.replace(/\D/g, ""),
         is_matriz: formData.isMatriz,
         id_matriz: !formData.isMatriz && formData.id_matriz !== "null" ? formData.id_matriz : null,
-        cep: formData.cep, logradouro: formData.logradouro, numero: formData.numero,
-        complemento: formData.complemento, bairro: formData.bairro,
-        cidade: formData.cidade, estado: formData.estado,
+        cep: formData.cep.replace(/\D/g, ""), 
+        logradouro: formData.logradouro, 
+        numero: formData.numero,
+        complemento: formData.complemento || "", 
+        bairro: formData.bairro,
+        cidade: formData.cidade, 
+        estado: formData.estado,
         dono_id: null, dono_nome: null, dono_cpf: null, dono_cargo: null,
       };
       const res = await fetch(`${SUPABASE_URL}/functions/v1/empresas-crud`, {
@@ -485,13 +540,22 @@ export function Empresas() {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/empresas-crud`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${ANON_KEY}`, "apikey": ANON_KEY },
         body: JSON.stringify({ id_empresa: deletingId }),
       });
-      if (!res.ok) throw new Error();
+      
+      const result = await res.json().catch(() => ({}));
+      
+      if (!res.ok) {
+         throw new Error(result.error || "Erro ao excluir empresa do banco de dados (pode haver vínculos ativos como alunos ou treinamentos).");
+      }
+      
       setDeleteDialogOpen(false);
       fetchData();
-    } catch { alert("Erro ao excluir empresa."); }
+    } catch (err: any) { 
+      console.error("Erro na exclusão:", err);
+      alert(err.message || "Erro ao excluir empresa."); 
+    }
     finally { setIsSubmitting(false); }
   };
 
@@ -849,12 +913,18 @@ export function Empresas() {
       ══════════════════════════════════════════════════════════════════════ */}
       <Dialog open={viewOverlayOpen} onOpenChange={setViewOverlayOpen}>
         <DialogContent className="max-w-3xl h-[85vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Detalhes da Empresa</DialogTitle>
+            <DialogDescription>
+              Visualize informações completas, contatos, alunos e parcerias desta empresa.
+            </DialogDescription>
+          </DialogHeader>
           <div className="bg-primary/5 p-6 border-b border-border flex items-start justify-between">
             <div className="space-y-1.5 flex-1 min-w-0">
-              <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <div className="text-2xl font-bold flex items-center gap-2">
                 <Building2 className="w-6 h-6 text-primary" />
                 <span className="truncate">{selectedEmpresa?.nome}</span>
-              </DialogTitle>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="font-mono text-xs bg-background/50 text-muted-foreground">{selectedEmpresa?.cnpj}</Badge>
                 <Badge variant={selectedEmpresa?.is_matriz ? "default" : "secondary"} className="uppercase text-[10px] tracking-wider font-bold">
@@ -1178,8 +1248,10 @@ export function Empresas() {
                     value={formData.cnpj}
                     onChange={(e) => handleFormData("cnpj", e.target.value)}
                     placeholder="00.000.000/0000-00"
+                    disabled={isEditing}
+                    className={isEditing ? "bg-muted cursor-not-allowed font-mono opacity-80" : ""}
                   />
-                  <Button variant="secondary" onClick={handleBuscarCnpj} disabled={isLoadingCnpj}>
+                  <Button variant="secondary" onClick={handleBuscarCnpj} disabled={isLoadingCnpj || isEditing}>
                     {isLoadingCnpj ? "Consultando..." : <Search className="w-4 h-4" />}
                   </Button>
                 </div>
