@@ -13,32 +13,52 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    
+    if (!supabaseServiceKey) {
+      console.error("CRITICAL: SUPABASE_SERVICE_ROLE_KEY is missing from environment variables.");
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
 
     const { method } = req;
     const url = new URL(req.url);
     const id = url.searchParams.get("id");
     
-    // --- VIEW: CONFIG ---
-    if (url.searchParams.get("view") === "config") {
+    // --- VIEW: CONFIG removed ---
+
+    // --- VIEW: ATTENDANCE ---
+    if (url.searchParams.get("view") === "attendance") {
+      const trainingId = url.searchParams.get("trainingId");
       if (method === "GET") {
-        const { data, error } = await supabase.from("configuracoes_gerais").select("*").limit(1).single();
-        if (error && error.code !== 'PGRST116') throw error;
-        return new Response(JSON.stringify(data || {}), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (!trainingId) throw new Error("trainingId required");
+        
+        // Fetch presence
+        const { data: presence, error: pError } = await supabase.from("aluno_frequencia").select("*").eq("id_treinamento", trainingId);
+        if (pError) throw pError;
+        
+        // Fetch grades
+        const { data: grades, error: gError } = await supabase.from("aluno_nota_modulo").select("*").eq("id_treinamento", trainingId);
+        if (gError) throw gError;
+        
+        return new Response(JSON.stringify({ presence, grades }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-      if (method === "PATCH") {
-        const payload = await req.json();
-        const { data: existing } = await supabase.from("configuracoes_gerais").select("id").limit(1).single();
-        let res;
-        if (existing) {
-          res = await supabase.from("configuracoes_gerais").update(payload).eq("id", existing.id);
-        } else {
-          res = await supabase.from("configuracoes_gerais").insert(payload);
+      
+      if (method === "POST") {
+        const { presence, grades } = await req.json();
+        
+        if (presence && Array.isArray(presence)) {
+          const { error: pErr } = await supabase.from("aluno_frequencia").upsert(presence, { onConflict: 'id_aluno,id_aula' });
+          if (pErr) throw pErr;
         }
-        if (res.error) throw res.error;
+        
+        if (grades && Array.isArray(grades)) {
+          const { error: gErr } = await supabase.from("aluno_nota_modulo").upsert(grades, { onConflict: 'id_aluno,id_modulo' });
+          if (gErr) throw gErr;
+        }
+        
         return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
@@ -55,7 +75,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("treinamento")
           .select(`
-            *,
+            id_treinamento, nome, slug, categoria, data_inicio, data_fim, status, carga_horaria, nota_minima_modulo, nota_minima_curso, presenca_minima_porcentagem, minutos_tolerancia_atraso,
             modules:treinamento_modulo (
               ordem,
               data_aula,
@@ -63,7 +83,8 @@ Deno.serve(async (req) => {
               hora_fim,
               duracao_minutos,
               modulo:modulo (
-                *,
+                id_modulo, 
+                nome,
                 aulas:modulo_aula (*)
               )
             ),
@@ -85,7 +106,7 @@ Deno.serve(async (req) => {
         const { data, error } = await supabase
           .from("treinamento")
           .select(`
-            *,
+            id_treinamento, nome, slug, categoria, data_inicio, data_fim, status, carga_horaria, nota_minima_modulo, nota_minima_curso, presenca_minima_porcentagem, minutos_tolerancia_atraso,
             modules:treinamento_modulo (
               ordem,
               data_aula,
@@ -95,7 +116,6 @@ Deno.serve(async (req) => {
               modulo:modulo (
                 id_modulo, 
                 nome, 
-                descricao,
                 aulas:modulo_aula (*)
               )
             ),
@@ -103,7 +123,16 @@ Deno.serve(async (req) => {
               id_empresa
             ),
             students:aluno_treinamento_progresso (
-              id_aluno
+              id_aluno,
+              aluno:aluno (
+                id_aluno,
+                nome,
+                cargo,
+                empresa:empresa (
+                  id_empresa,
+                  nome
+                )
+              )
             )
           `)
           .order("data_inicio", { ascending: true });
@@ -117,7 +146,7 @@ Deno.serve(async (req) => {
 
     // --- CREATE TRAINING ---
     if (method === "POST") {
-      const { nome, descricao, slug, categoria, data_inicio, data_fim, status, modules, companies, students } = body;
+      const { nome, slug, categoria, data_inicio, data_fim, status, modules, companies, students } = body;
       
       if (!nome) {
         return new Response(JSON.stringify({ error: "O nome do treinamento é obrigatório." }), {
@@ -131,13 +160,18 @@ Deno.serve(async (req) => {
         .replace(/[\s_]+/g, "-")
         .replace(/^-+|-+$/g, "") + "-" + Math.random().toString(36).substring(2, 7);
 
-      const { data: gConfig } = await supabase.from("configuracoes_gerais").select("*").limit(1).single();
+      // Configuration fetching removed - using defaults to stop communication with the table
+      const gConfig = {
+        nota_minima_modulo: 7,
+        nota_minima_curso: 7,
+        presenca_minima_porcentagem: 75,
+        minutos_tolerancia_atraso: 15
+      };
 
       const { data: training, error: trError } = await supabase
         .from("treinamento")
         .insert({ 
           nome, 
-          descricao, 
           slug: trainingSlug,
           categoria: categoria || "Geral", 
           data_inicio: data_inicio || null, 
@@ -155,22 +189,41 @@ Deno.serve(async (req) => {
       if (trError) throw trError;
       const trainingId = training.id_treinamento;
 
+      let associationErrors: any[] = [];
+
       // Association with Companies
-      if (companies && Array.isArray(companies)) {
+      if (companies && Array.isArray(companies) && companies.length > 0) {
+        console.log(`Inserting ${companies.length} company associations for training ${trainingId}`);
         const companyInserts = companies.map(compId => ({ id_treinamento: trainingId, id_empresa: compId }));
-        await supabase.from("empresa_treinamento").insert(companyInserts);
+        const { error: compErr } = await supabase.from("empresa_treinamento").insert(companyInserts);
+        if (compErr) {
+          console.error("Error inserting company associations:", compErr);
+          associationErrors.push({ table: "empresa_treinamento", error: compErr });
+        }
       }
 
       // Association with Students
       if (students && Array.isArray(students)) {
-        const studentInserts = students.map(studentId => ({ id_treinamento: trainingId, id_aluno: studentId }));
-        await supabase.from("aluno_treinamento_progresso").insert(studentInserts);
+        console.log(`Syncing ${students.length} students for training ${trainingId}`);
+        const studentInserts = students
+          .filter(sid => sid && typeof sid === 'string' && sid.length > 30) // Sanitize UUIDs
+          .map(studentId => ({ id_treinamento: trainingId, id_aluno: studentId }));
+        
+        if (studentInserts.length > 0) {
+          const { error: studErr } = await supabase.from("aluno_treinamento_progresso").insert(studentInserts);
+          if (studErr) {
+            console.error("Error inserting student associations:", studErr);
+            associationErrors.push({ table: "aluno_treinamento_progresso", error: studErr });
+          }
+        }
       }
+
+
 
       // Modules & Aulas
       if (modules && Array.isArray(modules)) {
         for (const [index, mod] of modules.entries()) {
-          const { data: newMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+          const { data: newMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome }).select().single();
           if (nError) throw nError;
           if (newMod) {
             const { error: tmErr } = await supabase.from("treinamento_modulo").insert({ 
@@ -212,33 +265,68 @@ Deno.serve(async (req) => {
         }
       }
 
-      return new Response(JSON.stringify(training), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 201 });
+      return new Response(JSON.stringify({ 
+        ...training, 
+        associationErrors, 
+        receivedData: { students, companies } 
+      }), { 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, 
+        status: 200 
+      });
     }
 
     // --- UPDATE TRAINING ---
     if (method === "PUT") {
       if (!id) throw new Error("ID required");
-      const { nome, descricao, slug, categoria, data_inicio, data_fim, status, modules, companies, students } = body;
+      const { nome, slug, categoria, data_inicio, data_fim, status, modules, companies, students } = body;
 
       const { data: training, error: trError } = await supabase
         .from("treinamento")
-        .update({ nome, descricao, slug, categoria, data_inicio, data_fim, status, carga_horaria: body.carga_horaria || 0 })
+        .update({ 
+          nome, 
+          slug, 
+          categoria, 
+          data_inicio, 
+          data_fim, 
+          status, 
+          carga_horaria: body.carga_horaria || 0,
+          presenca_minima_porcentagem: body.presenca_minima_porcentagem,
+          minutos_tolerancia_atraso: body.minutos_tolerancia_atraso
+        })
         .eq("id_treinamento", id).select().single();
 
       if (trError) throw trError;
 
+      let associationErrors: any[] = [];
+      
       // Sync Companies
       await supabase.from("empresa_treinamento").delete().eq("id_treinamento", id);
-      if (companies && Array.isArray(companies)) {
+      if (companies && Array.isArray(companies) && companies.length > 0) {
         const companyInserts = companies.map(compId => ({ id_treinamento: id, id_empresa: compId }));
-        await supabase.from("empresa_treinamento").insert(companyInserts);
+        const { error: compErr } = await supabase.from("empresa_treinamento").insert(companyInserts);
+        if (compErr) associationErrors.push({ table: "empresa_treinamento", error: compErr });
       }
 
       // Sync Students (Relationship table according to schema is aluno_treinamento_progresso)
-      await supabase.from("aluno_treinamento_progresso").delete().eq("id_treinamento", id);
+      const { error: delStudErr } = await supabase.from("aluno_treinamento_progresso").delete().eq("id_treinamento", id);
+      if (delStudErr) {
+        console.error("Error deleting old student associations:", delStudErr);
+        associationErrors.push({ table: "aluno_treinamento_progresso_delete", error: delStudErr });
+      }
+      
       if (students && Array.isArray(students)) {
-        const studentInserts = students.map(studentId => ({ id_treinamento: id, id_aluno: studentId }));
-        await supabase.from("aluno_treinamento_progresso").insert(studentInserts);
+        console.log(`Syncing ${students.length} students for training ${id}`);
+        const studentInserts = students
+          .filter(sid => sid && typeof sid === 'string' && sid.length > 30)
+          .map(studentId => ({ id_treinamento: id, id_aluno: studentId }));
+        
+        if (studentInserts.length > 0) {
+          const { error: studErr } = await supabase.from("aluno_treinamento_progresso").insert(studentInserts);
+          if (studErr) {
+            console.error("Error inserting new student associations:", studErr);
+            associationErrors.push({ table: "aluno_treinamento_progresso_insert", error: studErr });
+          }
+        }
       }
 
       // Sync Modules & Aulas
@@ -250,11 +338,11 @@ Deno.serve(async (req) => {
         for (const [index, mod] of modules.entries()) {
           let modId = mod.id_modulo;
           if (!modId) {
-            const { data: nMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome, descricao: mod.descricao }).select().single();
+            const { data: nMod, error: nError } = await supabase.from("modulo").insert({ nome: mod.nome }).select().single();
             if (nError) throw nError;
             modId = nMod?.id_modulo;
           } else {
-            const { error: updErr } = await supabase.from("modulo").update({ nome: mod.nome, descricao: mod.descricao }).eq("id_modulo", modId);
+            const { error: updErr } = await supabase.from("modulo").update({ nome: mod.nome }).eq("id_modulo", modId);
             if (updErr) throw updErr;
           }
           
@@ -292,13 +380,15 @@ Deno.serve(async (req) => {
                 hora_fim: mod.hora_fim || null,
                 duracao_minutos: mod.duracao_minutos || 0
               });
-              if (aulaErr) throw aulaErr;
             }
           }
         }
       }
 
-      return new Response(JSON.stringify(training), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ ...training, associationErrors }), { 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }, 
+        status: 200 
+      });
     }
 
     // --- DELETE TRAINING ---

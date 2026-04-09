@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Card } from "../components/ui/card";
@@ -14,12 +14,19 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { supabase } from "../lib/supabase";
+import { publicAnonKey } from "../../../utils/supabase/info";
+import { cn } from "../components/ui/utils";
 
 function toRoman(n: number): string {
-  const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
-  const syms=['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
-  let r='';
-  for(let i=0;i<vals.length;i++){while(n>=vals[i]){r+=syms[i];n-=vals[i];}}
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"];
+  let r = "";
+  for (let i = 0; i < vals.length; i++) {
+    while (n >= vals[i]) {
+      r += syms[i];
+      n -= vals[i];
+    }
+  }
   return r;
 }
 import {
@@ -48,7 +55,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "../components/ui/dialog";
 import {
   AlertDialog,
@@ -73,6 +79,7 @@ interface Student {
   cargo?: string;
   data_cadastro?: string;
   id_empresa?: string;
+  empresa_nome?: string;
   empresa?: { id_empresa: string; nome: string };
   entidade?: {
     id_entidade: string;
@@ -98,8 +105,8 @@ interface Treinamento {
 interface ModuloTreinamento {
   id_modulo: string;
   ordem: number;
+  nome: string;
   hora_inicio: string | null;
-  modulo: { id_modulo: string; nome: string };
   aulas?: Array<{ id_aula: string; ordem: number; hora_inicio: string | null; hora_fim: string | null }>;
 }
 
@@ -122,33 +129,28 @@ interface AlunoCompleto {
   nome: string;
   cpf: string;
   cargo: string;
+  email: string | null;
+  data_nascimento: string | null;
   empresa: string;
   telefone: string;
   presencas: Presenca[];
+  notas: Array<{ id_modulo: string; nota: number | null }>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function getAuthHeader() {
   const session = await supabase.auth.getSession();
-  return { Authorization: `Bearer ${session.data.session?.access_token}` };
-}
-
-function calcMediaAluno(aluno: AlunoCompleto, modulos: ModuloTreinamento[]): string {
-  const notas = modulos
-    .map((m) => {
-      const p = aluno.presencas.find((pr) => pr.id_modulo === m.id_modulo);
-      return p?.nota ?? null;
-    })
-    .filter((n) => n !== null) as number[];
-  if (notas.length === 0) return "-";
-  const avg = notas.reduce((a, b) => a + b, 0) / notas.length;
-  return avg.toFixed(1);
+  return {
+    Authorization: `Bearer ${session.data.session?.access_token}`,
+    apikey: publicAnonKey,
+  };
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────
 
 const formatCPF = (v: string) => {
+  if (!v) return "";
   const digits = v.replace(/\D/g, "").slice(0, 11);
   return digits
     .replace(/(\d{3})(\d)/, "$1.$2")
@@ -158,6 +160,7 @@ const formatCPF = (v: string) => {
 };
 
 const formatPhone = (v: string) => {
+  if (!v) return "";
   const digits = v.replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 10) {
     return digits
@@ -169,29 +172,35 @@ const formatPhone = (v: string) => {
     .replace(/(\d{5})(\d)/, "$1-$2");
 };
 
-const onlyDigits = (v: string) => v.replace(/\D/g, "");
+const onlyDigits = (v: string) => v ? v.replace(/\D/g, "") : "";
+
 
 // ─── Components ────────────────────────────────────────────────────────────────
 
 export function Alunos() {
+  // ── Filtros Globais ──────────────────────────────────────────────────────
   const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"simples" | "completa">("simples");
+  const [selectedTreinamento, setSelectedTreinamento] = useState<string>("none");
+  const [treinamentos, setTreinamentos] = useState<Treinamento[]>([]);
 
   // ── Visualização Simples ──────────────────────────────────────────────────
   const [students, setStudents] = useState<Student[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchStudents = useCallback(async () => {
+  const fetchStudents = useCallback(async (idTr?: string) => {
     setIsLoading(true);
     try {
       const headers = await getAuthHeader();
-      const response = await fetch(API_BASE, { headers });
+      const url = idTr && idTr !== "none" ? `${API_BASE}?id_treinamento=${idTr}` : API_BASE;
+      const response = await fetch(url, { headers });
       if (response.ok) {
         const data = await response.json();
-        const alArray = Array.isArray(data) ? data : [];
+        const alArray = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : []);
         const mapped = alArray.map((s: any) => ({
           ...s,
+          empresa_nome: s.empresa?.nome || "Independente",
           email: s.entidade?.contato?.[0]?.contato_email?.[0]?.email || "",
           telefone: s.entidade?.contato?.[0]?.contato_telefone?.[0]?.numero || "",
         }));
@@ -220,10 +229,21 @@ export function Alunos() {
     }
   }, []);
 
+  const fetchTreinamentos = useCallback(async () => {
+    try {
+      const headers = await getAuthHeader();
+      const res = await fetch(`${API_BASE}?view=treinamentos`, { headers });
+      if (res.ok) setTreinamentos(await res.json());
+    } catch (err) {
+      console.error("Erro ao buscar treinamentos:", err);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchStudents();
+    fetchStudents(selectedTreinamento);
     fetchCompanies();
-  }, [fetchStudents, fetchCompanies]);
+    fetchTreinamentos();
+  }, [fetchStudents, fetchCompanies, fetchTreinamentos, selectedTreinamento]);
 
   // ── Sort ─────────────────────────────────────────────────────────────────
   const [sortConfig, setSortConfig] = useState<{
@@ -253,7 +273,7 @@ export function Alunos() {
       (s) =>
         (s.nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         (s.cpf || "").includes(searchTerm) ||
-        (s.empresa?.nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.empresa_nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         (s.email || "").toLowerCase().includes(searchTerm.toLowerCase())
     )
     .sort((a, b) => {
@@ -374,14 +394,8 @@ export function Alunos() {
     }
   };
 
-  // ── Visualização Completa ─────────────────────────────────────────────────
-  const [treinamentos, setTreinamentos] = useState<Treinamento[]>([]);
-  const [selectedTreinamento, setSelectedTreinamento] = useState<string>("");
-  const [trainingSearch, setTrainingSearch] = useState("");
-  const [showTrainingDropdown, setShowTrainingDropdown] = useState(false);
-  const [filterYear, setFilterYear] = useState<string>("all");
-  const [filterMonth, setFilterMonth] = useState<string>("all");
-  const [filterDateType, setFilterDateType] = useState<"inicio" | "fim">("inicio");
+  // ── Visualização Completa ──────────────────────────────────────────────────
+
   
   const [modulos, setModulos] = useState<ModuloTreinamento[]>([]);
   const [alunosCompletos, setAlunosCompletos] = useState<AlunoCompleto[]>([]);
@@ -394,22 +408,8 @@ export function Alunos() {
   const [savePlanilhaConfirmOpen, setSavePlanilhaConfirmOpen] = useState(false);
   const [isSavingPlanilha, setIsSavingPlanilha] = useState(false);
 
-  const fetchTreinamentos = useCallback(async () => {
-    try {
-      const headers = await getAuthHeader();
-      const res = await fetch(`${API_BASE}?view=treinamentos`, { headers });
-      if (res.ok) setTreinamentos(await res.json());
-    } catch (err) {
-      console.error("Erro ao buscar treinamentos:", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (viewMode === "completa") fetchTreinamentos();
-  }, [viewMode, fetchTreinamentos]);
-
   const fetchCompleta = useCallback(async (idTreinamento: string) => {
-    if (!idTreinamento) return;
+    if (!idTreinamento || idTreinamento === "none") return;
     setIsLoadingCompleta(true);
     setIsEditingPlanilha(false);
     setEditedPresencas({});
@@ -432,64 +432,71 @@ export function Alunos() {
   }, []);
 
   useEffect(() => {
-    if (selectedTreinamento) fetchCompleta(selectedTreinamento);
-  }, [selectedTreinamento, fetchCompleta]);
+    if (viewMode === "completa" && selectedTreinamento !== "none") {
+      fetchCompleta(selectedTreinamento);
+    }
+  }, [selectedTreinamento, viewMode, fetchCompleta]);
 
-  // ── Funções do modo edição ────────────────────────────────────────────────
-
-  /** Retorna a presença atual (editada ou original) de um aluno num módulo, ou numa aula específica */
-  const getPresenca = (idAluno: string, idModulo: string, idAula?: string): Presenca | undefined => {
-    const key = idAula ? `${idAluno}__${idModulo}__${idAula}` : `${idAluno}__${idModulo}`;
+  const getPresenca = (idAluno: string, idModulo: string, idAula: string): Presenca | undefined => {
+    const key = `${idAluno}__${idModulo}__${idAula}`;
     if (editedPresencas[key]) return editedPresencas[key];
     const aluno = alunosCompletos.find((a) => a.id_aluno === idAluno);
-    return aluno?.presencas.find((p) => p.id_modulo === idModulo && (idAula ? p.id_aula === idAula : true));
+    return aluno?.presencas.find((p) => p.id_aula === idAula);
   };
 
-  const updatePresenca = (
-    idAluno: string,
-    idModulo: string,
-    idAula: string | undefined,
-    field: keyof Presenca,
-    value: any
-  ) => {
-    const key = idAula ? `${idAluno}__${idModulo}__${idAula}` : `${idAluno}__${idModulo}`;
-    // Procure no array se já existe a original específica ou fallback pra a do modulo
-    let original = (() => {
-      const aluno = alunosCompletos.find((a) => a.id_aluno === idAluno);
-      return aluno?.presencas.find((p) => p.id_modulo === idModulo && (idAula ? p.id_aula === idAula : true));
-    })();
+  const getModuloNota = (idAluno: string, idModulo: string): number | null => {
+    const key = `${idAluno}__${idModulo}__NOTA`;
+    if (editedPresencas[key]) return editedPresencas[key].nota;
+    const aluno = alunosCompletos.find((a) => a.id_aluno === idAluno);
+    return aluno?.notas?.find((n) => n.id_modulo === idModulo)?.nota ?? null;
+  };
+
+  const updatePresenca = (idAluno: string, idModulo: string, idAula: string | undefined, field: string, value: any) => {
+    const key = idAula ? `${idAluno}__${idModulo}__${idAula}` : `${idAluno}__${idModulo}__NOTA`;
     
-    // Se nem o fallback existir, é porque não tem registro da presenca no DB, criamos mockup.
-    if (!original) {
-      original = {
+    if (idAula) {
+      // Caso 1: Atualizando dados de Aula
+      const existing = getPresenca(idAluno, idModulo, idAula);
+      let newObj: Presenca = existing ? { ...existing } : {
         id_aluno: idAluno,
         id_treinamento: selectedTreinamento,
         id_modulo: idModulo,
-        id_aula: idAula || null,
+        id_aula: idAula,
+        presenca: false,
         pontualidade: null,
         camera_aberta: true,
         participacao: false,
-        presenca: false,
         justificativa_falta: false,
-        nota: null,
+        nota: null
       };
+
+      (newObj as any)[field] = value;
+
+      // Regra: Justificativa só existe se não houver presença
+      if (field === "presenca" && value === true) {
+        newObj.justificativa_falta = false;
+      }
+      setEditedPresencas(prev => ({ ...prev, [key]: newObj }));
+
+    } else {
+      // Caso 2: Atualizando Nota do Módulo
+      const newObj = {
+          id_aluno: idAluno,
+          id_treinamento: selectedTreinamento,
+          id_modulo: idModulo,
+          nota: value as number | null
+      };
+      setEditedPresencas(prev => ({ ...prev, [key]: newObj as any }));
     }
-    
-    const current = editedPresencas[key] ?? original;
-    setEditedPresencas((prev) => ({
-      ...prev,
-      [key]: { ...current, [field]: value },
-    }));
   };
+
 
   const handleEnterEditPlanilha = () => {
     setEditedPresencas({});
     setIsEditingPlanilha(true);
   };
 
-  const handleCancelPlanilha = () => {
-    setCancelPlanilhaConfirmOpen(true);
-  };
+  const handleCancelPlanilha = () => setCancelPlanilhaConfirmOpen(true);
 
   const confirmCancelPlanilha = () => {
     setEditedPresencas({});
@@ -519,19 +526,14 @@ export function Alunos() {
         setIsEditingPlanilha(false);
         setEditedPresencas({});
         await fetchCompleta(selectedTreinamento);
-      } else {
-        const err = await res.json();
-        alert(`Erro ao salvar: ${err.error || "Erro desconhecido"}`);
       }
     } catch (err) {
       console.error(err);
-      alert("Erro na requisição de salvamento");
     } finally {
       setIsSavingPlanilha(false);
     }
   };
 
-  // ── Filtro de busca na planilha ────────────────────────────────────────────
   const filteredAlunosCompletos = alunosCompletos.filter(
     (a) =>
       a.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -539,17 +541,13 @@ export function Alunos() {
       (a.telefone || "").includes(searchTerm)
   );
 
-  // ─── Render ───────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Alunos</h1>
-          <p className="text-muted-foreground mt-1">
-            Gerencie o cadastro e informações dos alunos
-          </p>
+          <p className="text-muted-foreground mt-1">Gerencie o cadastro e informações dos alunos</p>
         </div>
         {viewMode === "simples" && (
           <Button className="gap-2" onClick={handleAddNewStudent}>
@@ -561,41 +559,56 @@ export function Alunos() {
 
       {/* Top Controls */}
       <Card className="p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
+        <div className="flex flex-col md:flex-row items-end gap-4">
+          <div className="flex-1 space-y-1.5">
+            <Label className="text-sm font-semibold flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-blue-500" />
+              Selecione o Treinamento
+            </Label>
+            <Select value={selectedTreinamento} onValueChange={setSelectedTreinamento}>
+              <SelectTrigger className="w-full bg-background border-blue-100 focus:ring-blue-500">
+                <SelectValue placeholder="Selecione um treinamento..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Todos os Alunos (Base Geral)</SelectItem>
+                {treinamentos.map((t) => (
+                  <SelectItem key={t.id_treinamento} value={t.id_treinamento}>
+                    {t.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex-1 space-y-1.5">
+            <Label className="text-sm font-semibold">Busca Rápida</Label>
             <SearchInput
-              placeholder={
-                viewMode === "simples"
-                  ? "Buscar por nome, CPF, empresa..."
-                  : "Buscar por nome, empresa, telefone..."
-              }
+              placeholder="Nome, CPF ou Empresa..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-4">
-            <Label className="text-sm font-medium whitespace-nowrap">Visualização:</Label>
-            <RadioGroup
-              value={viewMode}
-              onValueChange={(v) => {
-                setViewMode(v as any);
-                setSearchTerm("");
-              }}
-              className="flex gap-4"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="simples" id="view-simples" />
-                <Label htmlFor="view-simples" className="cursor-pointer whitespace-nowrap">
-                  Simples
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="completa" id="view-completa" />
-                <Label htmlFor="view-completa" className="cursor-pointer whitespace-nowrap">
-                  Completa
-                </Label>
-              </div>
-            </RadioGroup>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-sm font-semibold">Modo de Exibição</Label>
+            <div className="flex items-center bg-muted/50 p-1 rounded-md h-10">
+              <Button
+                variant={viewMode === "simples" ? "secondary" : "ghost"}
+                size="sm"
+                className={cn("flex-1 gap-2", viewMode === "simples" && "bg-background shadow-sm")}
+                onClick={() => setViewMode("simples")}
+              >
+                Simples
+              </Button>
+              <Button
+                variant={viewMode === "completa" ? "secondary" : "ghost"}
+                size="sm"
+                className={cn("flex-1 gap-2", viewMode === "completa" && "bg-background shadow-sm")}
+                onClick={() => setViewMode("completa")}
+              >
+                Completa
+              </Button>
+            </div>
           </div>
         </div>
       </Card>
@@ -611,7 +624,7 @@ export function Alunos() {
                     [
                       ["nome", "Nome"],
                       ["cpf", "CPF"],
-                      ["id_empresa", "Empresa"],
+                      ["empresa_nome", "Empresa"],
                       ["telefone", "Telefone"],
                       ["email", "E-mail"],
                       ["data_nascimento", "Nascimento"],
@@ -622,10 +635,10 @@ export function Alunos() {
                     <TableHead
                       key={key}
                       className="cursor-pointer select-none hover:bg-muted/50 transition-colors"
-                      onClick={() => handleSort(key)}
+                      onClick={() => handleSort(key as keyof Student)}
                     >
                       <div className="flex items-center whitespace-nowrap">
-                        {label} {getSortIcon(key)}
+                        {label} {getSortIcon(key as keyof Student)}
                       </div>
                     </TableHead>
                   ))}
@@ -635,15 +648,16 @@ export function Alunos() {
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8">
-                      Carregando alunos...
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-muted-foreground">Carregando alunos...</p>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : filteredStudents.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-12">
-                      <p className="text-muted-foreground opacity-60 italic">
-                        Nenhum aluno encontrado.
-                      </p>
+                      <p className="text-muted-foreground opacity-60 italic">Nenhum aluno encontrado.</p>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -656,7 +670,7 @@ export function Alunos() {
                       <TableCell className="font-medium">{student.nome}</TableCell>
                       <TableCell className="text-muted-foreground">{formatCPF(student.cpf)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{student.empresa?.nome || "Independente"}</Badge>
+                        <Badge variant="outline">{student.empresa_nome}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{formatPhone(student.telefone || "") || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">{student.email || "-"}</TableCell>
@@ -667,9 +681,7 @@ export function Alunos() {
                       </TableCell>
                       <TableCell className="text-muted-foreground">{student.cargo || "-"}</TableCell>
                       <TableCell className="text-muted-foreground">
-                        {student.data_cadastro
-                          ? new Date(student.data_cadastro).toLocaleDateString("pt-BR")
-                          : "-"}
+                        {student.data_cadastro ? new Date(student.data_cadastro).toLocaleDateString("pt-BR") : "-"}
                       </TableCell>
                     </TableRow>
                   ))
@@ -683,736 +695,300 @@ export function Alunos() {
       {/* ── Visualização Completa ────────────────────────────────────────────── */}
       {viewMode === "completa" && (
         <div className="space-y-4">
-          {/* Barra de Busca e Filtros de Treinamento */}
-          <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-              {/* Busca de Treinamento */}
-              <div className="md:col-span-2 relative">
-                <Label className="text-xs mb-1.5 block">Treinamento</Label>
-                <div className="relative">
-                  <SearchInput
-                    placeholder="Pesquisar treinamento..."
-                    value={trainingSearch}
-                    onChange={(e) => {
-                      setTrainingSearch(e.target.value);
-                      setShowTrainingDropdown(true);
-                      if (!e.target.value && selectedTreinamento) {
-                        setSelectedTreinamento("");
-                      }
-                    }}
-                    onFocus={() => setShowTrainingDropdown(true)}
-                  />
-                  {showTrainingDropdown && trainingSearch.length > 0 && (
-                    <Card className="absolute z-50 w-full mt-1 max-h-[300px] overflow-auto shadow-xl border-blue-500/20">
-                      <div className="p-1">
-                        {treinamentos
-                          .filter(t => t.nome.toLowerCase().includes(trainingSearch.toLowerCase()))
-                          .map((t) => (
-                            <div
-                              key={t.id_treinamento}
-                              className="px-3 py-2 cursor-pointer hover:bg-blue-500/10 rounded-md text-sm flex items-center justify-between group"
-                              onClick={() => {
-                                setSelectedTreinamento(t.id_treinamento);
-                                setTrainingSearch(t.nome);
-                                setShowTrainingDropdown(false);
-                              }}
-                            >
-                              <span>{t.nome}</span>
-                              <Badge variant="outline" className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
-                                Selecionar
-                              </Badge>
-                            </div>
-                          ))}
-                        {treinamentos.filter(t => t.nome.toLowerCase().includes(trainingSearch.toLowerCase())).length === 0 && (
-                          <div className="px-3 py-4 text-center text-muted-foreground italic text-sm">
-                            Nenhum treinamento encontrado.
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  )}
-                </div>
+          {!selectedTreinamento || selectedTreinamento === "none" ? (
+            <Card className="p-12 text-center border-dashed">
+              <div className="flex flex-col items-center gap-3 opacity-50">
+                <GraduationCap className="w-12 h-12 mb-2" />
+                <p className="text-lg font-medium">Seleção Obrigatória</p>
+                <p className="text-sm">Selecione um treinamento no filtro acima para visualizar os dados completos.</p>
               </div>
+            </Card>
+          ) : (
+            <>
 
-              {/* Filtro Ano */}
-              <div className="space-y-1">
-                <Label className="text-xs">Ano</Label>
-                <Select value={filterYear} onValueChange={setFilterYear}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Ano" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os anos</SelectItem>
-                    <SelectItem value="2024">2024</SelectItem>
-                    <SelectItem value="2025">2025</SelectItem>
-                    <SelectItem value="2026">2026</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Filtro Mês */}
-              <div className="space-y-1">
-                <Label className="text-xs">Mês</Label>
-                <Select value={filterMonth} onValueChange={setFilterMonth}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os meses</SelectItem>
-                    <SelectItem value="01">Janeiro</SelectItem>
-                    <SelectItem value="02">Fevereiro</SelectItem>
-                    <SelectItem value="03">Março</SelectItem>
-                    <SelectItem value="04">Abril</SelectItem>
-                    <SelectItem value="05">Maio</SelectItem>
-                    <SelectItem value="06">Junho</SelectItem>
-                    <SelectItem value="07">Julho</SelectItem>
-                    <SelectItem value="08">Agosto</SelectItem>
-                    <SelectItem value="09">Setembro</SelectItem>
-                    <SelectItem value="10">Outubro</SelectItem>
-                    <SelectItem value="11">Novembro</SelectItem>
-                    <SelectItem value="12">Dezembro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-muted/30 p-3 rounded-lg border border-border/50">
-              <div className="flex items-center gap-4">
-                <Label className="text-xs font-semibold uppercase opacity-70">Filtrar por data de:</Label>
-                <RadioGroup
-                  value={filterDateType}
-                  onValueChange={(v) => setFilterDateType(v as any)}
-                  className="flex gap-4"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="inicio" id="dt-inicio" />
-                    <Label htmlFor="dt-inicio" className="text-xs cursor-pointer">Início</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="fim" id="dt-fim" />
-                    <Label htmlFor="dt-fim" className="text-xs cursor-pointer">Encerramento</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {selectedTreinamento && alunosCompletos.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-end gap-4 bg-muted/30 p-3 rounded-lg border border-border/50">
                 <div className="flex items-center gap-2">
                   {isEditingPlanilha ? (
                     <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={handleCancelPlanilha}
-                        disabled={isSavingPlanilha}
-                      >
-                        <X className="w-4 h-4 mr-1" />
-                        Descartar
+                      <Button variant="ghost" size="sm" onClick={handleCancelPlanilha} disabled={isSavingPlanilha}>
+                        <X className="w-4 h-4 mr-1" /> Descartar
                       </Button>
-                      <Button
-                        size="sm"
-                        className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20"
-                        onClick={handleSavePlanilha}
-                        disabled={isSavingPlanilha}
-                      >
-                        <Save className="w-4 h-4 mr-1" />
-                        {isSavingPlanilha ? "Salvando..." : "Salvar Chamada"}
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSavePlanilha} disabled={isSavingPlanilha}>
+                        <Save className="w-4 h-4 mr-1" /> {isSavingPlanilha ? "Salvando..." : "Salvar"}
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-blue-500/30 text-blue-600 hover:bg-blue-500/5"
-                      onClick={handleEnterEditPlanilha}
-                    >
-                      <Pencil className="w-4 h-4 mr-1" />
-                      Editar Chamada
+                    <Button size="sm" variant="outline" className="text-blue-600 border-blue-500/30" onClick={handleEnterEditPlanilha}>
+                      <Pencil className="w-4 h-4 mr-1" /> Editar Planilha
                     </Button>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
 
-          {/* Aviso de modo edição */}
-          {isEditingPlanilha && (
-            <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-sm">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>
-                <strong>Modo edição ativo.</strong> As alterações só serão salvas no banco de dados
-                ao confirmar em "Salvar Alterações". Fechar a aba descartará todas as mudanças.
-              </span>
-            </div>
-          )}
-
-          {/* Tabela planilha */}
-          {!selectedTreinamento ? (
-            <Card className="p-12 text-center border-dashed border-2 bg-muted/10">
-              <GraduationCap className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-40" />
-              <p className="text-muted-foreground font-medium">
-                Selecione um treinamento para visualizar a lista de chamada
-              </p>
-              <p className="text-muted-foreground text-sm mt-1 opacity-60">
-                O filtro por treinamento é obrigatório pois um mesmo aluno pode estar em múltiplos treinamentos.
-              </p>
-            </Card>
-          ) : isLoadingCompleta ? (
-            <Card className="p-8 text-center">
-              <p className="text-muted-foreground">Carregando dados...</p>
-            </Card>
-          ) : alunosCompletos.length === 0 ? (
-            <Card className="p-12 text-center border-dashed border-2 bg-muted/10">
-              <p className="text-muted-foreground italic">
-                Nenhum aluno vinculado a este treinamento.
-              </p>
-            </Card>
-          ) : (
-            <Card className={`overflow-hidden transition-all duration-200 ${isEditingPlanilha ? "ring-2 ring-amber-500/50" : ""}`}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    {/* Linha 1: grupos de módulos */}
-                    <tr>
-                      {/* Colunas fixas */}
-                      <th
-                        rowSpan={2}
-                        className="border border-border bg-muted/60 px-3 py-2 text-left font-semibold whitespace-nowrap sticky left-0 z-10 min-w-[180px]"
-                      >
-                        Nome Completo
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="border border-border bg-muted/60 px-3 py-2 text-left font-semibold whitespace-nowrap min-w-[140px]"
-                      >
-                        Empresa
-                      </th>
-                      <th
-                        rowSpan={2}
-                        className="border border-border bg-muted/60 px-3 py-2 text-left font-semibold whitespace-nowrap min-w-[120px]"
-                      >
-                        Telefone
-                      </th>
-                      {/* Cabeçalhos de módulos */}
-                      {modulos.map((m, idx) => {
-                        const hasMultipleAulas = m.aulas && m.aulas.length > 1;
-                        // Presenca, Pont, Status, Apareceu, Justif, Cam, Part = 7 colunas por aula
-                        // + Nota no final do modulo
-                        const colCountPerAula = 7;
-                        const colSpan = hasMultipleAulas ? (m.aulas!.length * colCountPerAula) + 1 : colCountPerAula + 1;
-                        
-                        const label = m.modulo?.nome?.trim()
-                          ? `Módulo ${toRoman(idx + 1)} — ${m.modulo.nome.trim()}`
-                          : `Módulo ${toRoman(idx + 1)}`;
-                          
-                        return (
-                          <th
-                            key={m.id_modulo}
-                            colSpan={colSpan}
-                            className="border border-border bg-blue-600/10 dark:bg-blue-500/15 px-3 py-2 text-center font-semibold text-blue-700 dark:text-blue-400 whitespace-nowrap"
-                          >
-                            {label}
-                            {m.hora_inicio && !hasMultipleAulas && (
-                              <span className="ml-1.5 text-xs font-normal opacity-70">
-                                ({m.hora_inicio.slice(0, 5)})
-                              </span>
-                            )}
-                          </th>
-                        );
-                      })}
-                      {/* Média */}
-                      <th
-                        rowSpan={2}
-                        className="border border-border bg-muted/60 px-3 py-2 text-center font-semibold whitespace-nowrap min-w-[60px]"
-                      >
-                        Média
-                      </th>
-                    </tr>
-                    {/* Linha 2: subcolunas */}
-                    <tr>
-                      {modulos.map((m) => {
-                        const hasMultipleAulas = m.aulas && m.aulas.length > 1;
-                        const renderCols = (id: string, labelSuffix: string = "") => (
-                          <React.Fragment key={`${id}-cols`}>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Pres.{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[70px]">Entrada{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[70px]">Status{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Apar.{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Just.{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Câm.{labelSuffix}</th>
-                            <th className="border border-border bg-muted/40 px-1 py-1 text-center text-[10px] font-medium text-muted-foreground whitespace-nowrap min-w-[40px]">Part.{labelSuffix}</th>
-                          </React.Fragment>
-                        );
-
-                        if (hasMultipleAulas) {
-                          return (
-                            <React.Fragment key={m.id_modulo}>
-                              {m.aulas!.sort((a,b) => a.ordem - b.ordem).map((aula, aIdx) => (
-                                <React.Fragment key={`${m.id_modulo}-${aula.id_aula}`}>
-                                  {renderCols(aula.id_aula, ` (A${aIdx+1})`)}
-                                </React.Fragment>
-                              ))}
-                              <th className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]">Nota</th>
-                            </React.Fragment>
-                          );
-                        } else {
-                          return (
-                            <React.Fragment key={m.id_modulo}>
-                              {renderCols(m.id_modulo)}
-                              <th className="border border-border bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1.5 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap min-w-[60px]">Nota</th>
-                            </React.Fragment>
-                          );
-                        }
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredAlunosCompletos.map((aluno, rowIdx) => (
-                      <tr
-                        key={aluno.id_aluno}
-                        className={`transition-colors ${
-                          rowIdx % 2 === 0 ? "bg-background" : "bg-muted/20"
-                        } hover:bg-muted/30`}
-                      >
-                        {/* Nome */}
-                        <td className="border border-border px-3 py-2 font-medium sticky left-0 z-10 bg-inherit whitespace-nowrap">
-                          {aluno.nome}
-                        </td>
-                        {/* Empresa */}
-                        <td className="border border-border px-3 py-2">
-                          <Badge variant="outline" className="text-xs">
-                            {aluno.empresa}
-                          </Badge>
-                        </td>
-                        {/* Telefone */}
-                        <td className="border border-border px-3 py-2 text-muted-foreground whitespace-nowrap">
-                          {formatPhone(aluno.telefone || "") || "-"}
-                        </td>
-
-                        {/* Células por módulo */}
-                        {modulos.map((m) => {
-                          const hasMultipleAulas = m.aulas && m.aulas.length > 1;
-                          const isEditing = isEditingPlanilha;
-                          
-                          const renderPresencaFields = (presenca: Presenca | undefined, idAula: string | undefined, horaInicioOficial: string | null) => {
-                            // PONTUALIDADE LOGIC
-                            // Regras: 
-                            // 1. Chegou antes ou igual ao horário = pontual
-                            // 2. Chegou > inicio + atraso (5 min default) = atrasado
-                            // 3. Chegou > inicio + falta (15 min default) = falta
-                            
-                            const toleranceAtraso = 5;
-                            const toleranceFalta = 15;
-                            
-                            let status = "is-empty";
-                            let showApareceuPosHorario = false;
-                            
-                            if (presenca?.pontualidade && horaInicioOficial) {
-                              const [entryH, entryM] = presenca.pontualidade.split(":").map(Number);
-                              const [startH, startM] = horaInicioOficial.split(":").map(Number);
-                              
-                              const entryTotal = entryH * 60 + entryM;
-                              const startTotal = startH * 60 + startM;
-                              
-                              const diff = entryTotal - startTotal;
-                              
-                              if (diff <= 0) status = "pontual";
-                              else if (diff <= toleranceAtraso) status = "atrasado";
-                              else {
-                                status = "falta-tardia";
-                                showApareceuPosHorario = true;
-                              }
-                            } else if (!presenca?.presenca && presenca?.id_presenca) {
-                               status = "falta";
-                            }
-
+              {isLoadingCompleta ? (
+                <Card className="p-8 text-center border-border/50">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <div className="w-6 h-6 border-2 border-primary border-t-transparent animate-spin rounded-full" />
+                    <p className="text-sm text-muted-foreground">Carregando dados da planilha...</p>
+                  </div>
+                </Card>
+              ) : (
+                <Card className={`overflow-hidden border border-border shadow-xl transition-all ${isEditingPlanilha ? "ring-2 ring-primary/50" : ""}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px] border-collapse bg-background">
+                      <thead>
+                        {/* Nível 1: Grupos Principais */}
+                        <tr className="bg-muted text-muted-foreground uppercase tracking-wider text-[10px] font-bold">
+                          <th colSpan={7} className="border border-border px-3 py-2 text-left sticky left-0 z-20 bg-muted">Dados do Aluno</th>
+                          <th colSpan={modulos.reduce((acc, m) => acc + ((m.aulas?.length || 1) * 5) + 1, 0) + 2} className="border border-border px-3 py-2 text-center">Dados do Treinamento</th>
+                        </tr>
+                        {/* Nível 2: Campos do Aluno e Módulos */}
+                        <tr className="bg-muted/30 text-foreground">
+                          <th rowSpan={3} className="border border-border px-3 py-2 text-left sticky left-0 z-20 bg-muted/30 min-w-[200px]">Nome Completo</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[100px]">CPF</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[120px]">Empresa</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[100px]">Cargo</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[100px]">Telefone</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[150px]">Email</th>
+                          <th rowSpan={3} className="border border-border px-2 py-2 text-center min-w-[80px]">Nascimento</th>
+                          {modulos.map((m, idx) => {
+                            const nomeModulo = m.nome || (m as any).modulo?.nome || "Módulo sem título";
                             return (
-                              <React.Fragment key={`${aluno.id_aluno}-${m.id_modulo}-${idAula || 'single'}`}>
-                                {/* Presença */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  <Checkbox
-                                    checked={presenca?.presenca ?? false}
-                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "presenca", Boolean(v))}
-                                    disabled={!isEditing}
-                                    className="scale-90"
-                                  />
-                                </td>
-
-                                {/* Entrada */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  {isEditing ? (
-                                    <input
-                                      type="time"
-                                      value={presenca?.pontualidade?.slice(0, 5) ?? ""}
-                                      onChange={(e) => {
-                                        const val = e.target.value;
-                                        // Auto-mark presence/absence logic if late
-                                        let updatedPresencaValue = true;
-                                        if (val && horaInicioOficial) {
-                                          const [eh, em] = val.split(":").map(Number);
-                                          const [sh, sm] = horaInicioOficial.split(":").map(Number);
-                                          if ((eh * 60 + em) > (sh * 60 + sm + toleranceFalta)) {
-                                            updatedPresencaValue = false;
-                                          }
-                                        }
-
-                                        updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "pontualidade", val || null);
-                                        updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "presenca", updatedPresencaValue);
-                                      }}
-                                      className="w-full bg-background border border-input rounded px-0.5 py-0.5 text-[10px] text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                                    />
-                                  ) : (
-                                    <span className="text-[10px] tabular-nums">{presenca?.pontualidade?.slice(0, 5) ?? "-"}</span>
-                                  )}
-                                </td>
-
-                                {/* Status Pontualidade */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  {status === "pontual" && <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[9px] h-4 py-0">Pontual</Badge>}
-                                  {status === "atrasado" && <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[9px] h-4 py-0">Atrasado</Badge>}
-                                  {status === "falta-tardia" && <Badge className="bg-red-500/10 text-red-600 border-red-500/20 text-[9px] h-4 py-0">Falta/Tardia</Badge>}
-                                  {status === "falta" && <Badge variant="outline" className="text-[9px] h-4 py-0 text-muted-foreground">Falta</Badge>}
-                                  {status === "is-empty" && <span className="text-[9px] text-muted-foreground opacity-30">—</span>}
-                                </td>
-
-                                {/* Apareceu Pós Horário */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  <Checkbox
-                                    checked={showApareceuPosHorario}
-                                    disabled={true} // Visual feature only
-                                    className="scale-75 opacity-70"
-                                  />
-                                </td>
-
-                                {/* Justificativa Falta */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  <Checkbox
-                                    checked={presenca?.justificativa_falta ?? false}
-                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "justificativa_falta", Boolean(v))}
-                                    disabled={!isEditing}
-                                    className="scale-90"
-                                  />
-                                </td>
-
-                                {/* Câmera */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  <Checkbox
-                                    checked={presenca?.camera_aberta ?? true}
-                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "camera_aberta", Boolean(v))}
-                                    disabled={!isEditing}
-                                    className="scale-90"
-                                  />
-                                </td>
-
-                                {/* Participação */}
-                                <td className="border border-border px-1 py-1 text-center">
-                                  <Checkbox
-                                    checked={presenca?.participacao ?? false}
-                                    onCheckedChange={(v) => isEditing && updatePresenca(aluno.id_aluno, m.id_modulo, idAula, "participacao", Boolean(v))}
-                                    disabled={!isEditing}
-                                    className="scale-90"
-                                  />
-                                </td>
+                              <th key={m.id_modulo} colSpan={(m.aulas?.length || 1) * 5 + 1} className="border border-border bg-blue-500/10 dark:bg-blue-400/10 px-3 py-2 text-center text-blue-600 dark:text-blue-400 font-bold uppercase whitespace-nowrap">
+                                {toRoman(idx + 1)} — {nomeModulo}
+                              </th>
+                            );
+                          })}
+                          <th rowSpan={3} className="border border-border bg-muted/50 px-2 py-2 text-center min-w-[60px]">Média Geral</th>
+                          <th rowSpan={3} className="border border-border bg-muted/50 px-2 py-2 text-center min-w-[60px]">Pres. %</th>
+                        </tr>
+                        {/* Nível 3: Aulas e Coluna de Nota do Módulo */}
+                        <tr className="bg-background">
+                          {modulos.map((m) => {
+                            const aulas = (m.aulas || []).sort((a,b) => (a.ordem||0)-(b.ordem||0));
+                            return (
+                              <React.Fragment key={m.id_modulo}>
+                                {aulas.length > 0 ? (
+                                  aulas.map((a, i) => (
+                                    <th key={a.id_aula} colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground">
+                                      Aula {i + 1}
+                                    </th>
+                                  ))
+                                ) : (
+                                  <th colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground/50 italic">Sem aulas</th>
+                                )}
+                                <th rowSpan={2} className="border border-border bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 px-2 py-1 text-center min-w-[50px]">Nota</th>
                               </React.Fragment>
                             );
-                          };
+                          })}
+                        </tr>
+                        {/* Nível 4: Atributos das Aulas */}
+                        <tr className="bg-muted/10 text-[9px] uppercase font-bold text-muted-foreground/70">
+                          {modulos.map((m) => (
+                            <React.Fragment key={m.id_modulo}>
+                              {(m.aulas || []).map((a) => (
+                                <React.Fragment key={a.id_aula}>
+                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Pres.</th>
+                                  <th className="border border-border px-0.5 py-1 text-center min-w-[45px]">Pont.</th>
+                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Câm.</th>
+                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Part.</th>
+                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Just.</th>
+                                </React.Fragment>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAlunosCompletos.map((aluno, rIdx) => {
+                          // Cálculos de Linha
+                          const totalAulas = modulos.reduce((acc, m) => acc + (m.aulas?.length || 0), 0);
+                          const presencasCalculadas = modulos.reduce((acc, m) => {
+                            return acc + (m.aulas || []).filter(a => getPresenca(aluno.id_aluno, m.id_modulo, a.id_aula)?.presenca).length;
+                          }, 0);
+                          const freqPerc = totalAulas > 0 ? (presencasCalculadas / totalAulas) * 100 : 0;
 
-                          if (hasMultipleAulas) {
-                             const moduloPresenca = getPresenca(aluno.id_aluno, m.id_modulo);
-                             return (
-                               <>
-                                 {m.aulas!.sort((a,b) => a.ordem - b.ordem).map((aula) => {
-                                    const presencaAula = getPresenca(aluno.id_aluno, m.id_modulo, aula.id_aula);
-                                    return renderPresencaFields(presencaAula, aula.id_aula, aula.hora_inicio);
-                                 })}
-                                 {/* Nota do modulo */}
-                                 <td key={`${aluno.id_aluno}-${m.id_modulo}-nota`} className="border border-border bg-indigo-50/30 dark:bg-indigo-900/10 px-2 py-1.5 text-center">
-                                  {isEditing ? (
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={10}
-                                      step={0.1}
-                                      value={moduloPresenca?.nota ?? ""}
-                                      onChange={(e) =>
-                                        updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value !== "" ? parseFloat(e.target.value) : null)
-                                      }
-                                      placeholder="-"
-                                      className="w-12 bg-background border border-input rounded px-0.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                                    />
-                                  ) : (
-                                    <span className="text-sm tabular-nums font-semibold">
-                                      {moduloPresenca?.nota !== null && moduloPresenca?.nota !== undefined ? Number(moduloPresenca.nota).toFixed(1) : "-"}
-                                    </span>
-                                  )}
-                                </td>
-                               </>
-                             );
-                          } else {
-                            const presenca = getPresenca(aluno.id_aluno, m.id_modulo);
-                            return (
-                              <>
-                                {renderPresencaFields(presenca, undefined, m.hora_inicio)}
-                                {/* Nota */}
-                                <td key={`${aluno.id_aluno}-${m.id_modulo}-nota`} className="border border-border bg-indigo-50/30 dark:bg-indigo-900/10 px-2 py-1.5 text-center">
-                                  {isEditing ? (
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={10}
-                                      step={0.1}
-                                      value={presenca?.nota ?? ""}
-                                      onChange={(e) =>
-                                        updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value !== "" ? parseFloat(e.target.value) : null)
-                                      }
-                                      placeholder="-"
-                                      className="w-12 bg-background border border-input rounded px-0.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                                    />
-                                  ) : (
-                                    <span className="text-sm tabular-nums font-semibold">
-                                      {presenca?.nota !== null && presenca?.nota !== undefined ? Number(presenca.nota).toFixed(1) : "-"}
-                                    </span>
-                                  )}
-                                </td>
-                              </>
-                            );
-                          }
+                          const totalModulos = modulos.length;
+                          let todosComNota = true;
+                          const somaNotas = modulos.reduce((acc, m) => {
+                             const n = getModuloNota(aluno.id_aluno, m.id_modulo);
+                             if (n === null || n === undefined) todosComNota = false;
+                             return acc + (n || 0);
+                          }, 0);
+                          const mediaGeral = (todosComNota && totalModulos > 0) ? somaNotas / totalModulos : null;
+
+                          return (
+                            <tr key={aluno.id_aluno} className={`hover:bg-muted/40 transition-colors ${rIdx % 2 === 0 ? "bg-background" : "bg-muted/10"}`}>
+                              {/* Dados do Aluno (APENAS LEITURA) */}
+                              <td className="border border-border px-3 py-2 font-medium sticky left-0 z-10 bg-inherit shadow-[2px_0_5px_rgba(0,0,0,0.05)] text-foreground">{aluno.nome}</td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-80 text-foreground">{formatCPF(aluno.cpf)}</td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap"><Badge variant="outline" className="text-[10px] font-normal border-border/50 text-foreground">{aluno.empresa}</Badge></td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap truncate max-w-[100px] opacity-70 text-foreground">{aluno.cargo || "-"}</td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-80 text-foreground">{formatPhone(aluno.telefone) || "-"}</td>
+                              <td className="border border-border px-2 py-2 text-center truncate max-w-[150px] opacity-80 text-foreground">{aluno.email || "-"}</td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-70 text-foreground">{aluno.data_nascimento ? new Date(aluno.data_nascimento).toLocaleDateString('pt-BR') : "-"}</td>
+
+                              {/* Colunas Dinâmicas de Treinamento */}
+                              {modulos.map((m) => {
+                                const aulas = (m.aulas || []).sort((a,b) => (a.ordem||0)-(b.ordem||0));
+                                const notaModulo = getModuloNota(aluno.id_aluno, m.id_modulo);
+
+                                return (
+                                  <React.Fragment key={m.id_modulo}>
+                                    {aulas.map((a) => {
+                                      const pres = getPresenca(aluno.id_aluno, m.id_modulo, a.id_aula);
+                                      const isAbsent = !(pres?.presenca);
+
+                                      return (
+                                        <React.Fragment key={a.id_aula}>
+                                          {/* Presença */}
+                                          <td className="border border-border text-center p-1">
+                                            <input 
+                                              type="checkbox" 
+                                              checked={pres?.presenca ?? false}
+                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "presenca", e.target.checked)}
+                                              disabled={!isEditingPlanilha}
+                                              className="w-3.5 h-3.5 cursor-pointer accent-blue-600 dark:accent-blue-500"
+                                            />
+                                          </td>
+                                          {/* Pontualidade */}
+                                          <td className="border border-border p-0.5">
+                                            {isEditingPlanilha ? (
+                                              <input 
+                                                type="time" 
+                                                value={pres?.pontualidade?.slice(0,5) ?? ""} 
+                                                onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "pontualidade", e.target.value)}
+                                                className="w-full bg-transparent border-0 text-[10px] p-0 text-center focus:ring-1 focus:ring-blue-400 text-foreground" 
+                                              />
+                                            ) : (
+                                              <span className="text-[10px] block text-center opacity-70 text-foreground">{pres?.pontualidade?.slice(0,5) || "-"}</span>
+                                            )}
+                                          </td>
+                                          {/* Câmera */}
+                                          <td className="border border-border text-center p-1">
+                                             <input 
+                                              type="checkbox" 
+                                              checked={pres?.camera_aberta ?? true}
+                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "camera_aberta", e.target.checked)}
+                                              disabled={!isEditingPlanilha}
+                                              className="w-3.5 h-3.5 cursor-pointer accent-indigo-600 dark:accent-indigo-400"
+                                            />
+                                          </td>
+                                          {/* Participação */}
+                                          <td className="border border-border text-center p-1">
+                                            <input 
+                                              type="checkbox" 
+                                              checked={pres?.participacao ?? false}
+                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "participacao", e.target.checked)}
+                                              disabled={!isEditingPlanilha}
+                                              className="w-3.5 h-3.5 cursor-pointer accent-emerald-600 dark:accent-emerald-400"
+                                            />
+                                          </td>
+                                          {/* Justificativa */}
+                                          <td className="border border-border text-center p-1 bg-muted/5">
+                                            <input 
+                                              type="checkbox" 
+                                              checked={pres?.justificativa_falta ?? false}
+                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "justificativa_falta", e.target.checked)}
+                                              disabled={!isEditingPlanilha || !isAbsent}
+                                              className={`w-3.5 h-3.5 accent-amber-600 dark:accent-amber-500 ${!isAbsent ? 'opacity-20 cursor-not-allowed' : 'cursor-pointer'}`}
+                                            />
+                                          </td>
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                    {/* Nota do Módulo */}
+                                    <td className="border border-border bg-emerald-500/5 dark:bg-emerald-400/5 text-center p-1">
+                                      {isEditingPlanilha ? (
+                                        <input 
+                                          type="number" 
+                                          step="0.1" 
+                                          min="0" 
+                                          max="10"
+                                          value={notaModulo ?? ""} 
+                                          onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value ? parseFloat(e.target.value) : null)}
+                                          className="w-full bg-transparent border-0 text-[10px] font-bold text-center text-emerald-700 dark:text-emerald-400 p-0 focus:ring-0" 
+                                        />
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">{notaModulo?.toFixed(1) || "-"}</span>
+                                      )}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
+
+                              {/* Resumo Final da Linha */}
+                              <td className="border border-border bg-muted/20 px-2 py-2 text-center font-bold text-foreground">
+                                {mediaGeral !== null ? mediaGeral.toFixed(1) : "-"}
+                              </td>
+                              <td className={`border border-border bg-muted/20 px-2 py-2 text-center font-bold ${freqPerc < 75 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                {freqPerc.toFixed(0)}%
+                              </td>
+                            </tr>
+                          );
                         })}
-
-                        {/* Média */}
-                        <td className="border border-border px-3 py-2 text-center font-semibold tabular-nums">
-                          {(() => {
-                            const currentTreinamento = treinamentos.find(t => t.id_treinamento === selectedTreinamento);
-                            const notaMinima = currentTreinamento?.nota_minima_curso ?? 7;
-                            
-                            const notas = modulos
-                              .map((m) => {
-                                const presenca = getPresenca(aluno.id_aluno, m.id_modulo);
-                                return presenca?.nota ?? null;
-                              })
-                              .filter((n) => n !== null) as number[];
-                            if (notas.length === 0) return <span className="text-muted-foreground font-normal">-</span>;
-                            
-                            const avg = notas.reduce((a, b) => a + b, 0) / notas.length;
-                            const isApproved = avg >= notaMinima;
-                            const isWarning = avg >= (notaMinima - 1.5) && avg < notaMinima;
-                            
-                            return (
-                              <span className={isApproved ? "text-emerald-600 dark:text-emerald-400" : isWarning ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}>
-                                {avg.toFixed(1)}
-                              </span>
-                            );
-                          })()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* ── Modal Detalhe Aluno (Visualização Simples) ────────────────────── */}
+      {/* ── Modais e AlertDialogs ─────────────────────────────────────────── */}
       {selectedStudent && (
-        <Dialog
-          open={detailModalOpen}
-          onOpenChange={(open) => {
-            if (!open) {
-              if (isStudentDirty) setDiscardStudentConfirmOpen(true);
-              else setDetailModalOpen(false);
-            }
-          }}
-        >
-          <DialogContent
-            className="max-w-4xl max-h-[90vh] overflow-y-auto"
-            onPointerDownOutside={(e) => e.preventDefault()}
-          >
+        <Dialog open={detailModalOpen} onOpenChange={(o) => !o && (isStudentDirty ? setDiscardStudentConfirmOpen(true) : setDetailModalOpen(false))}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>
-                {selectedStudent.id_aluno ? "Detalhes do Aluno" : "Cadastrar Aluno"}
-              </DialogTitle>
-              <DialogDescription>
-                {selectedStudent.id_aluno
-                  ? `Visualize ou edite as informações de ${selectedStudent.nome}`
-                  : "Preencha os dados do novo aluno"}
-              </DialogDescription>
+              <DialogTitle>{selectedStudent.id_aluno ? "Detalhes do Aluno" : "Cadastrar Aluno"}</DialogTitle>
             </DialogHeader>
-
-            <div className="space-y-6 py-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {/* Nome */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">Nome</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      value={selectedStudent.nome}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, nome: e.target.value });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">{selectedStudent.nome}</p>
-                  )}
-                </div>
-
-                {/* CPF */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">CPF</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      value={formatCPF(selectedStudent.cpf)}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, cpf: formatCPF(e.target.value) });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">{formatCPF(selectedStudent.cpf)}</p>
-                  )}
-                </div>
-
-                {/* Data de Nascimento */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">Data de Nascimento</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      type="date"
-                      value={selectedStudent.data_nascimento || ""}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, data_nascimento: e.target.value });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">
-                      {selectedStudent.data_nascimento
-                        ? new Date(selectedStudent.data_nascimento + "T00:00:00").toLocaleDateString("pt-BR")
-                        : "-"}
-                    </p>
-                  )}
-                </div>
-
-                {/* Empresa */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">Empresa</Label>
-                  {isEditingStudent ? (
-                    <Select
-                      value={selectedStudent.id_empresa || "none"}
-                      onValueChange={(val) => {
-                        setSelectedStudent({ ...selectedStudent, id_empresa: val });
-                        setIsStudentDirty(true);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Independente</SelectItem>
-                        {companies.map((c) => (
-                          <SelectItem key={c.id_empresa} value={c.id_empresa}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Badge variant="outline">
-                      {selectedStudent.empresa?.nome || "Independente"}
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Telefone */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">Telefone</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      value={formatPhone(selectedStudent.telefone || "")}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, telefone: formatPhone(e.target.value) });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">{formatPhone(selectedStudent.telefone || "") || "-"}</p>
-                  )}
-                </div>
-
-                {/* E-mail */}
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground text-xs uppercase">E-mail</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      type="email"
-                      value={selectedStudent.email || ""}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, email: e.target.value });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">{selectedStudent.email || "-"}</p>
-                  )}
-                </div>
-
-                {/* Cargo */}
-                <div className="space-y-1 md:col-span-2">
-                  <Label className="text-muted-foreground text-xs uppercase">Cargo</Label>
-                  {isEditingStudent ? (
-                    <Input
-                      value={selectedStudent.cargo || ""}
-                      onChange={(e) => {
-                        setSelectedStudent({ ...selectedStudent, cargo: e.target.value });
-                        setIsStudentDirty(true);
-                      }}
-                    />
-                  ) : (
-                    <p className="font-medium">{selectedStudent.cargo || "-"}</p>
-                  )}
-                </div>
-
-                {/* Data de Cadastro (somente leitura) */}
-                {selectedStudent.data_cadastro && (
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-xs uppercase">Matrícula</Label>
-                    <p className="font-medium text-muted-foreground">
-                      {new Date(selectedStudent.data_cadastro).toLocaleDateString("pt-BR")}
-                    </p>
-                  </div>
-                )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
+              <div className="space-y-1">
+                <Label>Nome</Label>
+                {isEditingStudent ? <Input value={selectedStudent.nome} onChange={e => { setSelectedStudent({...selectedStudent, nome: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.nome}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>CPF</Label>
+                {isEditingStudent ? <Input value={formatCPF(selectedStudent.cpf)} onChange={e => { setSelectedStudent({...selectedStudent, cpf: formatCPF(e.target.value)}); setIsStudentDirty(true); }} /> : <p className="font-medium">{formatCPF(selectedStudent.cpf)}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>Empresa</Label>
+                {isEditingStudent ? (
+                  <Select value={selectedStudent.id_empresa || "none"} onValueChange={v => { setSelectedStudent({...selectedStudent, id_empresa: v}); setIsStudentDirty(true); }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Independente</SelectItem>
+                      {companies.map(c => <SelectItem key={c.id_empresa} value={c.id_empresa}>{c.nome}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : <Badge variant="outline">{selectedStudent.empresa_nome}</Badge>}
+              </div>
+              <div className="space-y-1">
+                <Label>Telefone</Label>
+                {isEditingStudent ? <Input value={formatPhone(selectedStudent.telefone || "")} onChange={e => { setSelectedStudent({...selectedStudent, telefone: formatPhone(e.target.value)}); setIsStudentDirty(true); }} /> : <p className="font-medium">{formatPhone(selectedStudent.telefone || "")}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>E-mail</Label>
+                {isEditingStudent ? <Input value={selectedStudent.email || ""} onChange={e => { setSelectedStudent({...selectedStudent, email: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.email || "-"}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>Cargo</Label>
+                {isEditingStudent ? <Input value={selectedStudent.cargo || ""} onChange={e => { setSelectedStudent({...selectedStudent, cargo: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.cargo || "-"}</p>}
               </div>
             </div>
-
-            <div className="flex w-full items-center justify-between border-t border-border pt-4 mt-2">
-              <div>
-                {selectedStudent.id_aluno && (
-                  <Button
-                    variant="destructive"
-                    onClick={() => setDeleteConfirmOpen(true)}
-                    disabled={isSubmitting}
-                  >
-                    Excluir
-                  </Button>
-                )}
-              </div>
+            <div className="flex justify-between border-t pt-4">
+              {selectedStudent.id_aluno && <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>Excluir</Button> }
               <div className="flex gap-2">
                 {isEditingStudent ? (
                   <>
-                    <Button variant="outline" onClick={handleCancelEdit}>
-                      Cancelar
-                    </Button>
-                    <Button onClick={handleSaveStudent} disabled={isSubmitting}>
-                      Salvar Alterações
-                    </Button>
+                    <Button variant="outline" onClick={handleCancelEdit}>Cancelar</Button>
+                    <Button onClick={handleSaveStudent} disabled={isSubmitting}>Salvar Alterações</Button>
                   </>
                 ) : (
                   <>
-                    <Button variant="outline" onClick={() => setDetailModalOpen(false)}>
-                      Fechar
-                    </Button>
+                    <Button variant="outline" onClick={() => setDetailModalOpen(false)}>Fechar</Button>
                     <Button onClick={() => setIsEditingStudent(true)}>Editar</Button>
                   </>
                 )}
@@ -1422,112 +998,53 @@ export function Alunos() {
         </Dialog>
       )}
 
-      {/* ── AlertDialogs ─────────────────────────────────────────────────── */}
-
-      {/* Descartar edição de aluno */}
+      {/* AlertDialogs */}
       <AlertDialog open={discardStudentConfirmOpen} onOpenChange={setDiscardStudentConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Os dados modificados serão perdidos caso não sejam salvos.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Descartar alterações?</AlertDialogTitle></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDiscardEdit}
-              className="bg-destructive hover:bg-destructive/90"
-            >
-              Descartar
-            </AlertDialogAction>
+            <AlertDialogCancel>Continuar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDiscardEdit} className="bg-destructive">Descartar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Confirmar salvar aluno */}
       <AlertDialog open={saveStudentConfirmOpen} onOpenChange={setSaveStudentConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar salvamento?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Deseja salvar as informações deste aluno no banco de dados?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Confirmar salvamento?</AlertDialogTitle></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmitting}>Revisar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmSaveStudent} disabled={isSubmitting}>
-              Confirmar e Salvar
-            </AlertDialogAction>
+            <AlertDialogCancel>Revisar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveStudent}>Confirmar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Confirmar exclusão de aluno */}
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Tem certeza que deseja excluir?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação removerá permanentemente o aluno{" "}
-              <strong>{selectedStudent?.nome}</strong> e todos os seus vínculos de
-              contato e presença.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Excluir aluno?</AlertDialogTitle></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSubmitting}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeleteStudent}
-              className="bg-destructive hover:bg-destructive/90"
-              disabled={isSubmitting}
-            >
-              Excluir Definitivamente
-            </AlertDialogAction>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteStudent} className="bg-destructive">Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Cancelar edição da planilha */}
       <AlertDialog open={cancelPlanilhaConfirmOpen} onOpenChange={setCancelPlanilhaConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Descartar alterações da planilha?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Todas as edições feitas na lista de chamada serão perdidas. Nenhum dado foi
-              salvo no banco de dados ainda.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Descartar edições da planilha?</AlertDialogTitle></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmCancelPlanilha}
-              className="bg-destructive hover:bg-destructive/90"
-            >
-              Descartar alterações
-            </AlertDialogAction>
+            <AlertDialogCancel>Continuar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmCancelPlanilha} className="bg-destructive">Descartar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Confirmar salvar planilha */}
       <AlertDialog open={savePlanilhaConfirmOpen} onOpenChange={setSavePlanilhaConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Salvar lista de chamada?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Os dados de presença, pontualidade, câmera e notas serão gravados
-              permanentemente no banco de dados. Deseja continuar?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Salvar alterações?</AlertDialogTitle></AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSavingPlanilha}>Revisar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmSavePlanilha}
-              disabled={isSavingPlanilha}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {isSavingPlanilha ? "Salvando..." : "Confirmar e Salvar"}
-            </AlertDialogAction>
+            <AlertDialogCancel>Revisar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSavePlanilha} className="bg-blue-600">Salvar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

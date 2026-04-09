@@ -151,7 +151,7 @@ export function Dashboard() {
   };
 
   const filteredPartnerships = genericSort(
-    (partnershipData[partnershipType]?.empresas || []).filter(emp => 
+    (partnershipData[partnershipType]?.empresas || []).filter((emp: any) => 
       emp.nome.toLowerCase().includes(partnershipSearch.toLowerCase())
     ),
     sortPartnerships
