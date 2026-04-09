@@ -47,6 +47,7 @@ import {
   X,
   GraduationCap,
   AlertTriangle,
+  PlayCircle,
 } from "lucide-react";
 import { SearchInput } from "../components/ui/search-input";
 import {
@@ -91,6 +92,7 @@ interface Student {
   };
   email?: string;
   telefone?: string;
+  treinamentos?: any[];
 }
 
 interface Treinamento {
@@ -421,15 +423,46 @@ export function Alunos() {
       );
       if (res.ok) {
         const data = await res.json();
-        setModulos(data.modulos ?? []);
-        setAlunosCompletos(data.alunos ?? []);
+        
+        // Fallback p/ Módulos sem aulas (Criar Aula 1 virtual)
+        const modsComFallback = (data.modulos ?? []).map((m: any) => {
+          if (!m.aulas || m.aulas.length === 0) {
+            return {
+              ...m,
+              aulas: [{
+                id_aula: `v-${m.id_modulo}`, // Virtual ID prefix
+                id_modulo: m.id_modulo,
+                ordem: 0,
+                hora_inicio: m.hora_inicio || null,
+                hora_fim: m.hora_fim || null,
+                is_virtual: true
+              }]
+            };
+          }
+          return m;
+        });
+
+        // Merge de dados de contato (usa os dados já carregados na lista simples se ficarem vazios)
+        const alunosMerge = (data.alunos ?? []).map((ac: any) => {
+          const sRef = students.find(s => s.id_aluno === ac.id_aluno);
+          return {
+            ...ac,
+            email: ac.email || sRef?.email || "",
+            telefone: ac.telefone || sRef?.telefone || "",
+            cpf: ac.cpf || sRef?.cpf || "",
+            cargo: ac.cargo || sRef?.cargo || ""
+          };
+        });
+
+        setModulos(modsComFallback);
+        setAlunosCompletos(alunosMerge);
       }
     } catch (err) {
       console.error("Erro ao buscar visualização completa:", err);
     } finally {
       setIsLoadingCompleta(false);
     }
-  }, []);
+  }, [students]);
 
   useEffect(() => {
     if (viewMode === "completa" && selectedTreinamento !== "none") {
@@ -509,7 +542,13 @@ export function Alunos() {
   const confirmSavePlanilha = async () => {
     setIsSavingPlanilha(true);
     try {
-      const registros = Object.values(editedPresencas);
+      const registros = Object.values(editedPresencas).map((reg: any) => {
+        if (reg.id_aula && String(reg.id_aula).startsWith("v-")) {
+          return { ...reg, id_aula: null };
+        }
+        return reg;
+      });
+
       if (registros.length === 0) {
         setIsEditingPlanilha(false);
         setSavePlanilhaConfirmOpen(false);
@@ -809,24 +848,27 @@ export function Alunos() {
                           const freqPerc = totalAulas > 0 ? (presencasCalculadas / totalAulas) * 100 : 0;
 
                           const totalModulos = modulos.length;
-                          let todosComNota = true;
+                          let modulosComNota = 0;
                           const somaNotas = modulos.reduce((acc, m) => {
                              const n = getModuloNota(aluno.id_aluno, m.id_modulo);
-                             if (n === null || n === undefined) todosComNota = false;
-                             return acc + (n || 0);
+                             if (n !== null && n !== undefined) {
+                               modulosComNota++;
+                               return acc + n;
+                             }
+                             return acc;
                           }, 0);
-                          const mediaGeral = (todosComNota && totalModulos > 0) ? somaNotas / totalModulos : null;
+                          const mediaGeral = modulosComNota > 0 ? somaNotas / modulosComNota : null;
 
                           return (
                             <tr key={aluno.id_aluno} className={`hover:bg-muted/40 transition-colors ${rIdx % 2 === 0 ? "bg-background" : "bg-muted/10"}`}>
                               {/* Dados do Aluno (APENAS LEITURA) */}
-                              <td className="border border-border px-3 py-2 font-medium sticky left-0 z-10 bg-inherit shadow-[2px_0_5px_rgba(0,0,0,0.05)] text-foreground">{aluno.nome}</td>
+                              <td className="border border-border px-3 py-2 font-medium sticky left-0 z-10 bg-inherit shadow-[2px_0_5px_rgba(0,0,0,0.05)] text-foreground whitespace-nowrap">{aluno.nome}</td>
                               <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-80 text-foreground">{formatCPF(aluno.cpf)}</td>
                               <td className="border border-border px-2 py-2 text-center whitespace-nowrap"><Badge variant="outline" className="text-[10px] font-normal border-border/50 text-foreground">{aluno.empresa}</Badge></td>
                               <td className="border border-border px-2 py-2 text-center whitespace-nowrap truncate max-w-[100px] opacity-70 text-foreground">{aluno.cargo || "-"}</td>
                               <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-80 text-foreground">{formatPhone(aluno.telefone) || "-"}</td>
                               <td className="border border-border px-2 py-2 text-center truncate max-w-[150px] opacity-80 text-foreground">{aluno.email || "-"}</td>
-                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-70 text-foreground">{aluno.data_nascimento ? new Date(aluno.data_nascimento).toLocaleDateString('pt-BR') : "-"}</td>
+                              <td className="border border-border px-2 py-2 text-center whitespace-nowrap opacity-70 text-foreground">{aluno.data_nascimento ? new Date(aluno.data_nascimento + "T00:00:00").toLocaleDateString('pt-BR') : "-"}</td>
 
                               {/* Colunas Dinâmicas de Treinamento */}
                               {modulos.map((m) => {
@@ -837,7 +879,7 @@ export function Alunos() {
                                   <React.Fragment key={m.id_modulo}>
                                     {aulas.map((a) => {
                                       const pres = getPresenca(aluno.id_aluno, m.id_modulo, a.id_aula);
-                                      const isAbsent = !(pres?.presenca);
+                                      const isAbsent = pres && !pres.presenca;
 
                                       return (
                                         <React.Fragment key={a.id_aula}>
@@ -846,32 +888,29 @@ export function Alunos() {
                                             <input 
                                               type="checkbox" 
                                               checked={pres?.presenca ?? false}
-                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "presenca", e.target.checked)}
+                                              onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "presenca", e.target.checked)}
                                               disabled={!isEditingPlanilha}
-                                              className="w-3.5 h-3.5 cursor-pointer accent-blue-600 dark:accent-blue-500"
+                                              className="w-4 h-4 cursor-pointer accent-blue-600 dark:accent-blue-500 rounded border-gray-300"
                                             />
                                           </td>
                                           {/* Pontualidade */}
                                           <td className="border border-border p-0.5">
-                                            {isEditingPlanilha ? (
-                                              <input 
-                                                type="time" 
-                                                value={pres?.pontualidade?.slice(0,5) ?? ""} 
-                                                onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "pontualidade", e.target.value)}
-                                                className="w-full bg-transparent border-0 text-[10px] p-0 text-center focus:ring-1 focus:ring-blue-400 text-foreground" 
-                                              />
-                                            ) : (
-                                              <span className="text-[10px] block text-center opacity-70 text-foreground">{pres?.pontualidade?.slice(0,5) || "-"}</span>
-                                            )}
+                                            <input 
+                                              type="time" 
+                                              value={pres?.pontualidade?.slice(0,5) ?? ""} 
+                                              onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "pontualidade", e.target.value)}
+                                              disabled={!isEditingPlanilha}
+                                              className="w-full bg-transparent border-0 text-[10px] p-0 text-center focus:ring-1 focus:ring-blue-400 text-foreground disabled:opacity-70" 
+                                            />
                                           </td>
                                           {/* Câmera */}
                                           <td className="border border-border text-center p-1">
                                              <input 
                                               type="checkbox" 
-                                              checked={pres?.camera_aberta ?? true}
-                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "camera_aberta", e.target.checked)}
+                                              checked={pres?.camera_aberta ?? false}
+                                              onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "camera_aberta", e.target.checked)}
                                               disabled={!isEditingPlanilha}
-                                              className="w-3.5 h-3.5 cursor-pointer accent-indigo-600 dark:accent-indigo-400"
+                                              className="w-4 h-4 cursor-pointer accent-indigo-600 dark:accent-indigo-400 rounded border-gray-300"
                                             />
                                           </td>
                                           {/* Participação */}
@@ -879,9 +918,9 @@ export function Alunos() {
                                             <input 
                                               type="checkbox" 
                                               checked={pres?.participacao ?? false}
-                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "participacao", e.target.checked)}
+                                              onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "participacao", e.target.checked)}
                                               disabled={!isEditingPlanilha}
-                                              className="w-3.5 h-3.5 cursor-pointer accent-emerald-600 dark:accent-emerald-400"
+                                              className="w-4 h-4 cursor-pointer accent-emerald-600 dark:accent-emerald-400 rounded border-gray-300"
                                             />
                                           </td>
                                           {/* Justificativa */}
@@ -889,9 +928,9 @@ export function Alunos() {
                                             <input 
                                               type="checkbox" 
                                               checked={pres?.justificativa_falta ?? false}
-                                              onChange={(e) => isEditingPlanilha && updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "justificativa_falta", e.target.checked)}
-                                              disabled={!isEditingPlanilha || !isAbsent}
-                                              className={`w-3.5 h-3.5 accent-amber-600 dark:accent-amber-500 ${!isAbsent ? 'opacity-20 cursor-not-allowed' : 'cursor-pointer'}`}
+                                              onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "justificativa_falta", e.target.checked)}
+                                              disabled={!isEditingPlanilha}
+                                              className="w-4 h-4 cursor-pointer accent-amber-600 dark:accent-amber-500 rounded border-gray-300"
                                             />
                                           </td>
                                         </React.Fragment>
@@ -899,19 +938,17 @@ export function Alunos() {
                                     })}
                                     {/* Nota do Módulo */}
                                     <td className="border border-border bg-emerald-500/5 dark:bg-emerald-400/5 text-center p-1">
-                                      {isEditingPlanilha ? (
                                         <input 
                                           type="number" 
                                           step="0.1" 
                                           min="0" 
                                           max="10"
                                           value={notaModulo ?? ""} 
+                                          placeholder="-"
                                           onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value ? parseFloat(e.target.value) : null)}
-                                          className="w-full bg-transparent border-0 text-[10px] font-bold text-center text-emerald-700 dark:text-emerald-400 p-0 focus:ring-0" 
+                                          disabled={!isEditingPlanilha}
+                                          className="w-full bg-transparent border-0 text-[10px] font-bold text-center text-emerald-700 dark:text-emerald-400 p-0 focus:ring-0 disabled:opacity-100" 
                                         />
-                                      ) : (
-                                        <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">{notaModulo?.toFixed(1) || "-"}</span>
-                                      )}
                                     </td>
                                   </React.Fragment>
                                 );
@@ -922,7 +959,7 @@ export function Alunos() {
                                 {mediaGeral !== null ? mediaGeral.toFixed(1) : "-"}
                               </td>
                               <td className={`border border-border bg-muted/20 px-2 py-2 text-center font-bold ${freqPerc < 75 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                {freqPerc.toFixed(0)}%
+                                {freqPerc.toFixed(freqPerc % 1 === 0 ? 0 : 1)}%
                               </td>
                             </tr>
                           );
@@ -943,6 +980,9 @@ export function Alunos() {
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{selectedStudent.id_aluno ? "Detalhes do Aluno" : "Cadastrar Aluno"}</DialogTitle>
+              <DialogDescription>
+                Visualize ou edite as informações completas do aluno.
+              </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
               <div className="space-y-1">
@@ -977,7 +1017,49 @@ export function Alunos() {
                 <Label>Cargo</Label>
                 {isEditingStudent ? <Input value={selectedStudent.cargo || ""} onChange={e => { setSelectedStudent({...selectedStudent, cargo: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.cargo || "-"}</p>}
               </div>
+              <div className="space-y-1">
+                <Label>Data de Nascimento</Label>
+                {isEditingStudent ? (
+                  <Input 
+                    type="date" 
+                    value={selectedStudent.data_nascimento || ""} 
+                    onChange={e => { setSelectedStudent({...selectedStudent, data_nascimento: e.target.value}); setIsStudentDirty(true); }} 
+                  />
+                ) : (
+                  <p className="font-medium">
+                    {selectedStudent.data_nascimento ? new Date(selectedStudent.data_nascimento + "T00:00:00").toLocaleDateString("pt-BR") : "-"}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {/* List of Enrolled Trainings */}
+            {!isEditingStudent && selectedStudent.id_aluno && (
+              <div className="space-y-4 pt-4 border-t">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  <PlayCircle className="w-4 h-4" />
+                  Treinamentos Matriculados
+                </h3>
+                {selectedStudent.treinamentos && selectedStudent.treinamentos.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-2">
+                    {selectedStudent.treinamentos.map((t: any) => (
+                      <div key={t.id_treinamento} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-sm">{t.treinamento?.nome || "Treinamento sem nome"}</span>
+                          <span className="text-xs text-muted-foreground">{t.treinamento?.status || "Status não definido"}</span>
+                        </div>
+                        <Badge variant={t.treinamento?.status === 'Concluído' ? 'secondary' : 'default'} className="text-[10px]">
+                          {t.treinamento?.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic text-center py-2">Nenhum treinamento vinculado a este aluno.</p>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between border-t pt-4">
               {selectedStudent.id_aluno && <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>Excluir</Button> }
               <div className="flex gap-2">
@@ -1001,7 +1083,12 @@ export function Alunos() {
       {/* AlertDialogs */}
       <AlertDialog open={discardStudentConfirmOpen} onOpenChange={setDiscardStudentConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Descartar alterações?</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você possui alterações não salvas. Se prosseguir, todos os dados preenchidos serão perdidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Continuar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDiscardEdit} className="bg-destructive">Descartar</AlertDialogAction>
@@ -1011,7 +1098,12 @@ export function Alunos() {
 
       <AlertDialog open={saveStudentConfirmOpen} onOpenChange={setSaveStudentConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Confirmar salvamento?</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar salvamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              As informações preenchidas serão salvas permanentemente no cadastro do aluno.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Revisar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmSaveStudent}>Confirmar</AlertDialogAction>
@@ -1021,7 +1113,12 @@ export function Alunos() {
 
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Excluir aluno?</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir aluno?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. Todos os dados vinculados a este aluno serão removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteStudent} className="bg-destructive">Excluir</AlertDialogAction>
@@ -1031,7 +1128,12 @@ export function Alunos() {
 
       <AlertDialog open={cancelPlanilhaConfirmOpen} onOpenChange={setCancelPlanilhaConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Descartar edições da planilha?</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar edições da planilha?</AlertDialogTitle>
+            <AlertDialogDescription>
+              As alterações de presença e notas feitas nesta sessão serão perdidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Continuar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmCancelPlanilha} className="bg-destructive">Descartar</AlertDialogAction>
@@ -1041,7 +1143,12 @@ export function Alunos() {
 
       <AlertDialog open={savePlanilhaConfirmOpen} onOpenChange={setSavePlanilhaConfirmOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Salvar alterações?</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Salvar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              As presenças e notas editadas serão atualizadas para todos os alunos selecionados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Revisar</AlertDialogCancel>
             <AlertDialogAction onClick={confirmSavePlanilha} className="bg-blue-600">Salvar</AlertDialogAction>

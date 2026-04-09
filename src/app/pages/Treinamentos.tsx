@@ -298,6 +298,8 @@ export function Treinamentos() {
           status: t.status || "Agendado",
           participants: studentsList.length,
           students: studentsList.map((s: any) => {
+            // New API structure: s = { id_aluno, aluno: { nome, empresa: { nome } } }
+            // Old API structure fallback: s = { id_aluno, nome, ... }
             const al = s.aluno || s.alunos || s;
             const emp = al.empresa || al.empresas;
             
@@ -463,42 +465,34 @@ export function Treinamentos() {
   });
 
   interface ModuloParte {
+    id_parte?: string;
     ordem: number;
     data_aula: string;
     hora_inicio: string;
     hora_fim: string;
+    duracao_minutos?: number;
   }
   interface TrainingModule {
     id: string;
     name: string;
-    data_aula: string;
-    hora_inicio: string;
-    hora_fim: string;
     aulas: ModuloParte[];
   }
   
   const emptyModule = (n: number): TrainingModule => ({
     id: `new-mod-${Date.now()}-${n}`,
     name: "",
-    data_aula: "",
-    hora_inicio: "",
-    hora_fim: "",
-    aulas: [],
+    aulas: [{ ordem: 0, data_aula: "", hora_inicio: "09:00", hora_fim: "10:00" }],
   });
 
-  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([{ id: "1", name: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
+  const [trainingModules, setTrainingModules] = useState<TrainingModule[]>([emptyModule(0)]);
 
   // Automated Status and Dates Logic
   useEffect(() => {
     let allAulas: { data: string; hora: string }[] = [];
     trainingModules.forEach((m) => {
-      if (m.aulas.length > 0) {
-        m.aulas.forEach((a) => {
-          if (a.data_aula) allAulas.push({ data: a.data_aula, hora: a.hora_inicio || "09:00" });
-        });
-      } else if (m.data_aula) {
-        allAulas.push({ data: m.data_aula, hora: m.hora_inicio || "09:00" });
-      }
+      m.aulas.forEach((a) => {
+        if (a.data_aula) allAulas.push({ data: a.data_aula, hora: a.hora_inicio || "09:00" });
+      });
     });
 
     if (allAulas.length > 0) {
@@ -540,14 +534,9 @@ export function Treinamentos() {
       prevTime = prev.hora_fim;
     } else if (modIdx > 0) {
       const prevMod = currentModules[modIdx - 1];
-      if (prevMod.aulas.length > 0) {
-        const lastAula = prevMod.aulas[prevMod.aulas.length - 1];
-        prevDate = lastAula.data_aula;
-        prevTime = lastAula.hora_fim;
-      } else {
-        prevDate = prevMod.data_aula;
-        prevTime = prevMod.hora_fim;
-      }
+      const lastAula = prevMod.aulas[prevMod.aulas.length - 1];
+      prevDate = lastAula?.data_aula || "";
+      prevTime = lastAula?.hora_fim || "";
     }
 
     if (!prevDate || !prevTime) return null;
@@ -562,8 +551,10 @@ export function Treinamentos() {
     const mod = m[modIdx];
     const aula = aulaIdx !== null ? mod.aulas[aulaIdx] : null;
 
-    const currDate = aula ? aula.data_aula : mod.data_aula;
-    const currTime = aula ? aula.hora_inicio : mod.hora_inicio;
+    if (!aula) return;
+
+    const currDate = aula.data_aula;
+    const currTime = aula.hora_inicio;
 
     if (!currDate || !currTime) return;
 
@@ -585,13 +576,6 @@ export function Treinamentos() {
         if (endDT <= minDT) {
           const nextH = new Date(minDT.getTime() + 3600000); // Default +1 hour
           mod.aulas[aulaIdx!].hora_fim = nextH.toTimeString().slice(0, 5);
-        }
-      } else {
-        m[modIdx] = { ...mod, data_aula: newDate, hora_inicio: newTime };
-        const endDT = new Date(`${newDate}T${mod.hora_fim || "00:00"}`);
-        if (endDT <= minDT) {
-          const nextH = new Date(minDT.getTime() + 3600000);
-          m[modIdx].hora_fim = nextH.toTimeString().slice(0, 5);
         }
       }
       setTrainingModules(m);
@@ -711,20 +695,19 @@ export function Treinamentos() {
     if (raw.modules && raw.modules.length > 0) {
       setTrainingModules(raw.modules.map((m: any) => ({
         id: m.id_modulo || `mod-temp-${Date.now()}-${m.ordem}`,
-        name: m.modulo?.nome || "",
-        data_aula: m.data_aula || "",
-        hora_inicio: m.hora_inicio || "",
-        hora_fim: m.hora_fim || "",
-        aulas: (m.modulo?.aulas ?? m.modulo?.partes ?? []).map((p: any) => ({
+        name: m.nome || "", // Module name is now direct
+        aulas: (m.aulas || []).map((p: any) => ({
+          id_parte: p.id_parte,
           ordem: p.ordem,
           data_aula: p.data_aula || "",
           hora_inicio: p.hora_inicio || "",
           hora_fim: p.hora_fim || "",
+          duracao_minutos: p.duracao_minutos || 0
         })),
       })));
       setActiveTab(raw.modules[0].id_modulo || (raw.modules.length > 0 ? `mod-temp-${Date.now()}-0` : ""));
     } else {
-      setTrainingModules([{ id: `mod-${Date.now()}`, name: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
+      setTrainingModules([emptyModule(0)]);
       setActiveTab("");
     }
 
@@ -746,10 +729,10 @@ export function Treinamentos() {
       partnershipCompany: "",
       students: []
     });
-    setTrainingModules([{ id: "1", name: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
+    setTrainingModules([emptyModule(0)]);
     setAddTrainingOpen(true);
     setIsTrainingDirty(false);
-    setActiveTab("1");
+    setActiveTab(trainingModules[0]?.id || "1");
   };
 
   const handleDeleteMaterial = (material: Material) => {
@@ -804,9 +787,10 @@ export function Treinamentos() {
       students: []
     });
     setEditingTrainingId(null);
-    setTrainingModules([{ id: `mod-${Date.now()}`, name: "", data_aula: "", hora_inicio: "", hora_fim: "", aulas: [] }]);
+    const m1 = emptyModule(0);
+    setTrainingModules([m1]);
     setIsTrainingDirty(false);
-    setActiveTab(""); // Reset to first tab when opening
+    setActiveTab(m1.id); // Reset to first tab when opening
     setStudentModalCompanyFilter("todas");
     setStudentModalCompanySearch("");
     setStudentModalStudentSearch("");
@@ -871,22 +855,19 @@ export function Treinamentos() {
         const m = trainingModules[i];
         const mName = m.name || `Módulo ${toRoman(i + 1)}`;
         
-        if (m.aulas.length > 0) {
-            for (let j = 0; j < m.aulas.length; j++) {
-                const a = m.aulas[j];
-                const aName = `${mName} - Aula ${toRoman(j + 1)}`;
-                if (!a.data_aula || !a.hora_inicio || !a.hora_fim) {
-                    toast.error(`Preencha todos os campos de data e hora em: ${aName}`);
-                    return;
-                }
-                sortedAulas.push({ data: a.data_aula, inicio: a.hora_inicio, fim: a.hora_fim, name: aName });
-            }
-        } else {
-            if (!m.data_aula || !m.hora_inicio || !m.hora_fim) {
-                toast.error(`Preencha data e hora para o ${mName} ou adicione aulas.`);
+        if (m.aulas.length === 0) {
+            toast.error(`O módulo ${mName} deve ter pelo menos uma aula.`);
+            return;
+        }
+
+        for (let j = 0; j < m.aulas.length; j++) {
+            const a = m.aulas[j];
+            const aName = `${mName} - Aula ${toRoman(j + 1)}`;
+            if (!a.data_aula || !a.hora_inicio || !a.hora_fim) {
+                toast.error(`Preencha todos os campos de data e hora em: ${aName}`);
                 return;
             }
-            sortedAulas.push({ data: m.data_aula, inicio: m.hora_inicio, fim: m.hora_fim, name: mName });
+            sortedAulas.push({ data: a.data_aula, inicio: a.hora_inicio, fim: a.hora_fim, name: aName });
         }
     }
 
@@ -919,25 +900,18 @@ export function Treinamentos() {
         data_inicio: trainingData.startDate || null,
         data_fim: trainingData.endDate || null,
         modules: trainingModules.map((m, index) => {
-          let m_data = m.data_aula;
-          let m_inicio = m.hora_inicio;
-          let m_fim = m.hora_fim;
-
-          if (m.aulas.length > 0) {
-            m_data = m.aulas[0].data_aula;
-            m_inicio = m.aulas[0].hora_inicio;
-            // O fim do módulo é o fim da última aula
-            m_fim = m.aulas[m.aulas.length - 1].hora_fim;
-          }
-
           return {
-            id_modulo: (m.id && !String(m.id).startsWith("mod-")) ? m.id : null,
+            id_modulo: (m.id && !String(m.id).startsWith("new-mod")) ? m.id : null,
             nome: m.name ? m.name.trim() : null,
-            ordem: index,
-            data_aula: m_data || null,
-            hora_inicio: m_inicio || null,
-            hora_fim: m_fim || null,
-            aulas: m.aulas,
+            ordem: index + 1,
+            aulas: m.aulas.map((aula, aIdx) => ({
+                id_parte: (aula.id_parte && !String(aula.id_parte).startsWith("new-") && !String(aula.id_parte).startsWith("v-")) ? aula.id_parte : null,
+                ordem: aIdx + 1,
+                data_aula: aula.data_aula,
+                hora_inicio: aula.hora_inicio,
+                hora_fim: aula.hora_fim,
+                duracao_minutos: aula.duracao_minutos || 0
+            })),
           };
         }),
         students: trainingData.students
@@ -1714,78 +1688,14 @@ export function Treinamentos() {
                                 }}
                               />
                             </div>
-                            <div className="space-y-1.5 col-span-2">
-                              {/* O nome é o único campo na primeira linha agora, ou podemos adicionar algo ao lado se necessário */}
-                            </div>
                           </div>
-
-                          {/* Módulo description removed */}
-
-                          {mod.aulas.length === 0 && (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-1 border-t">
-                              <div className="space-y-1.5">
-                                <Label className="flex items-center gap-1.5 text-xs"><Calendar className="w-3.5 h-3.5" />Data</Label>
-                                <Input
-                                  type="date"
-                                  value={mod.data_aula}
-                                  onChange={(e) => {
-                                    const m = [...trainingModules];
-                                    m[index] = { ...m[index], data_aula: e.target.value };
-                                    setTrainingModules(m);
-                                    setIsTrainingDirty(true);
-                                  }}
-                                  onBlur={() => validateAndReset(index, null)}
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="flex items-center gap-1.5 text-xs"><Clock className="w-3.5 h-3.5" />Início</Label>
-                                <Input
-                                  type="time"
-                                  value={mod.hora_inicio}
-                                  onChange={(e) => {
-                                    const m = [...trainingModules];
-                                    m[index] = { ...m[index], hora_inicio: e.target.value };
-                                    setTrainingModules(m);
-                                    setIsTrainingDirty(true);
-                                  }}
-                                  onBlur={() => validateAndReset(index, null)}
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="flex items-center gap-1.5 text-xs"><Clock className="w-3.5 h-3.5" />Fim</Label>
-                                <Input
-                                  type="time"
-                                  value={mod.hora_fim}
-                                  onChange={(e) => {
-                                    const m = [...trainingModules];
-                                    m[index] = { ...m[index], hora_fim: e.target.value };
-                                    setTrainingModules(m);
-                                    setIsTrainingDirty(true);
-                                  }}
-                                  onBlur={() => {
-                                      if (!mod.hora_inicio) return;
-                                      const start = new Date(`${mod.data_aula || '2000-01-01'}T${mod.hora_inicio}`);
-                                      const end = new Date(`${mod.data_aula || '2000-01-01'}T${mod.hora_fim}`);
-                                      if (end <= start) {
-                                          const m = [...trainingModules];
-                                          const [h, min_v] = mod.hora_inicio.split(":").map(Number);
-                                          m[index].hora_fim = `${String((h + 1) % 24).padStart(2, '0')}:${String(min_v).padStart(2, '0')}`;
-                                          setTrainingModules(m);
-                                      }
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
 
                           <div className="border-t pt-4 space-y-3">
                             <div className="flex items-center justify-between">
                               <div>
                                 <Label className="text-base font-semibold">Aulas do Módulo</Label>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                  {mod.aulas.length === 0
-                                    ? 'Sem aulas múltiplas — data e horário definidos acima'
-                                    : `${mod.aulas.length} aula(s) — cada uma com data e horário próprios`}
+                                  {mod.aulas.length} aula(s) — cada uma com data e horário próprios
                                 </p>
                               </div>
                               <Button
@@ -1795,7 +1705,7 @@ export function Treinamentos() {
                                 onClick={() => {
                                   const prev = getPrevEndPoint(index, mod.aulas.length, trainingModules);
                                   let defaultStart = "09:00";
-                                  let defaultDate = mod.data_aula || "";
+                                  let defaultDate = mod.aulas[0]?.data_aula || "";
                                   
                                   if (prev) {
                                     const min = new Date(new Date(`${prev.date}T${prev.time}`).getTime() + 60000);
@@ -1809,12 +1719,9 @@ export function Treinamentos() {
                                   const m = [...trainingModules];
                                   m[index] = {
                                     ...m[index],
-                                    data_aula: "",
-                                    hora_inicio: "",
-                                    hora_fim: "",
                                     aulas: [
                                       ...m[index].aulas,
-                                      { ordem: m[index].aulas.length, data_aula: defaultDate, hora_inicio: defaultStart, hora_fim: defaultEnd },
+                                      { id_parte: undefined, ordem: m[index].aulas.length, data_aula: defaultDate, hora_inicio: defaultStart, hora_fim: defaultEnd },
                                     ],
                                   };
                                   setTrainingModules(m);
@@ -1883,18 +1790,18 @@ export function Treinamentos() {
                                           setTrainingModules(m);
                                           setIsTrainingDirty(true);
                                         }}
-                                        onBlur={() => {
+                                         onBlur={() => {
                                             const start = new Date(`${aula.data_aula}T${aula.hora_inicio}`);
                                             const end = new Date(`${aula.data_aula}T${aula.hora_fim}`);
                                             if (end <= start) {
                                                 const m = [...trainingModules];
                                                 const aulas = [...m[index].aulas];
-                                                const [h, min] = aula.hora_inicio.split(":").map(Number);
-                                                aulas[pi].hora_fim = `${String((h+1)%24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+                                                const [h, min_val] = aula.hora_inicio.split(":").map(Number);
+                                                aulas[pi].hora_fim = `${String((h+1)%24).padStart(2, '0')}:${String(min_val).padStart(2, '0')}`;
                                                 m[index].aulas = aulas;
                                                 setTrainingModules(m);
                                             }
-                                        }}
+                                         }}
                                         className="h-8 text-sm"
                                       />
                                     </div>
@@ -1907,11 +1814,6 @@ export function Treinamentos() {
                                         const aulas = m[index].aulas.filter((_, i) => i !== pi)
                                           .map((p, i) => ({ ...p, ordem: i }));
                                         m[index] = { ...m[index], aulas };
-                                        if (aulas.length === 0) {
-                                          m[index].data_aula = "";
-                                          m[index].hora_inicio = "";
-                                          m[index].hora_fim = "";
-                                        }
                                         setTrainingModules(m);
                                         setIsTrainingDirty(true);
                                       }}
