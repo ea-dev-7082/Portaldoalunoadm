@@ -73,7 +73,10 @@ import {
   Eye,
   Save,
   Undo2,
-  Table as TableIcon
+  Table as TableIcon,
+  BookOpen,
+  CircleDot,
+  ClipboardList
 } from "lucide-react";
 import { Checkbox } from "../components/ui/checkbox";
 import { SearchInput } from "../components/ui/search-input";
@@ -591,6 +594,174 @@ export function Treinamentos() {
   const [selectedStatsStatuses, setSelectedStatsStatuses] = useState<string[]>([]);
   const [statsSort, setStatsSort] = useState<{ key: string, direction: "asc" | "desc" }>({ key: "nome", direction: "asc" });
 
+  // Module Detail Overlay States
+  const [moduleDetailOpen, setModuleDetailOpen] = useState(false);
+  const [selectedModule, setSelectedModule] = useState<any>(null);
+  const [selectedModuleTraining, setSelectedModuleTraining] = useState<any>(null);
+
+  // Test Editor States
+  const [testeEditorOpen, setTesteEditorOpen] = useState(false);
+  const [testeData, setTesteData] = useState<any>(null);
+  const [testePerguntas, setTestePerguntas] = useState<any[]>([]);
+  const [isLoadingTeste, setIsLoadingTeste] = useState(false);
+  const [isSavingTeste, setIsSavingTeste] = useState(false);
+  const [confirmDeleteTesteOpen, setConfirmDeleteTesteOpen] = useState(false);
+
+  const handleOpenModuleDetail = (modData: any, training: any) => {
+    setSelectedModule(modData);
+    setSelectedModuleTraining(training);
+    setModuleDetailOpen(true);
+  };
+
+  const handleOpenTesteEditor = async (modulo: any) => {
+    setTesteEditorOpen(true);
+    setIsLoadingTeste(true);
+    try {
+      const headers = await getAuthHeader();
+      const res = await fetch(
+        `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_modulo=${modulo.id_modulo}`,
+        { headers }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data) {
+          setTesteData(data);
+          setTestePerguntas(data.perguntas || []);
+        } else {
+          setTesteData(null);
+          // Pré-popular com modelo de 10 perguntas padrão
+          const template = Array.from({ length: 10 }, (_, i) => ({
+            id_pergunta: `new-${Date.now()}-${i}`,
+            enunciado: `Esta é a pergunta número ${i + 1}`,
+            ordem: i + 1,
+            valor_nota: 1.0,
+            alternativas: [
+              { id_alternativa: `new-a-${Date.now()}-${i}-0`, texto: "Esta é a resposta certa", is_correta: true, ordem: 1 },
+              { id_alternativa: `new-a-${Date.now()}-${i}-1`, texto: "Esta é a resposta errada 1", is_correta: false, ordem: 2 },
+              { id_alternativa: `new-a-${Date.now()}-${i}-2`, texto: "Esta é a resposta errada 2", is_correta: false, ordem: 3 },
+              { id_alternativa: `new-a-${Date.now()}-${i}-3`, texto: "Esta é a resposta errada 3", is_correta: false, ordem: 4 },
+            ]
+          }));
+          setTestePerguntas(template);
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao buscar teste:", err);
+    } finally {
+      setIsLoadingTeste(false);
+    }
+  };
+
+  const handleAddPergunta = () => {
+    setTestePerguntas(prev => [
+      ...prev,
+      {
+        id_pergunta: `new-${Date.now()}`,
+        enunciado: "",
+        ordem: prev.length + 1,
+        valor_nota: 1.0,
+        alternativas: [
+          { id_alternativa: `new-a-${Date.now()}-1`, texto: "", is_correta: true, ordem: 1 },
+          { id_alternativa: `new-a-${Date.now()}-2`, texto: "", is_correta: false, ordem: 2 },
+        ]
+      }
+    ]);
+  };
+
+  const handleAddAlternativa = (perguntaIdx: number) => {
+    setTestePerguntas(prev => {
+      const updated = [...prev];
+      const p = { ...updated[perguntaIdx] };
+      p.alternativas = [
+        ...(p.alternativas || []),
+        { id_alternativa: `new-a-${Date.now()}`, texto: "", is_correta: false, ordem: (p.alternativas?.length || 0) + 1 }
+      ];
+      updated[perguntaIdx] = p;
+      return updated;
+    });
+  };
+
+  const handleRemovePergunta = (perguntaIdx: number) => {
+    setTestePerguntas(prev => prev.filter((_, i) => i !== perguntaIdx));
+  };
+
+  const handleRemoveAlternativa = (perguntaIdx: number, altIdx: number) => {
+    setTestePerguntas(prev => {
+      const updated = [...prev];
+      const p = { ...updated[perguntaIdx] };
+      p.alternativas = (p.alternativas || []).filter((_: any, i: number) => i !== altIdx);
+      updated[perguntaIdx] = p;
+      return updated;
+    });
+  };
+
+  const handleSetCorreta = (perguntaIdx: number, altIdx: number) => {
+    setTestePerguntas(prev => {
+      const updated = [...prev];
+      const p = { ...updated[perguntaIdx] };
+      p.alternativas = (p.alternativas || []).map((a: any, i: number) => ({
+        ...a,
+        is_correta: i === altIdx
+      }));
+      updated[perguntaIdx] = p;
+      return updated;
+    });
+  };
+
+  const handleSaveTeste = async () => {
+    if (!selectedModule) return;
+    setIsSavingTeste(true);
+    try {
+      const headers = await getAuthHeader();
+      const res = await fetch(
+        `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id_modulo: selectedModule.id_modulo,
+            titulo: testeData?.titulo || "Teste de Conhecimento",
+            perguntas: testePerguntas
+          })
+        }
+      );
+      if (res.ok) {
+        const saved = await res.json();
+        setTesteData(saved);
+        setTestePerguntas(saved.perguntas || []);
+        toast.success("Teste de conhecimento salvo com sucesso!");
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Erro ao salvar teste");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Erro de conexão");
+    } finally {
+      setIsSavingTeste(false);
+    }
+  };
+
+  const handleDeleteTeste = async () => {
+    if (!testeData?.id_teste) return;
+    try {
+      const headers = await getAuthHeader();
+      const res = await fetch(
+        `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_teste=${testeData.id_teste}`,
+        { method: "DELETE", headers }
+      );
+      if (res.ok) {
+        setTesteData(null);
+        setTestePerguntas([]);
+        setConfirmDeleteTesteOpen(false);
+        toast.success("Teste excluído com sucesso.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao excluir teste");
+    }
+  };
+
+  const totalNotaTeste = testePerguntas.reduce((acc: number, p: any) => acc + (Number(p.valor_nota) || 0), 0);
+
   const getSortIcon = (config: any, key: string) => {
     if (config.key !== key) return <ArrowUpDown className="w-4 h-4 ml-1 text-muted-foreground inline" />;
     return config.direction === "asc" ? (
@@ -1081,18 +1252,24 @@ export function Treinamentos() {
                               .map((m: any, idx: number) => {
                                 const modAulas = m.modulo?.aulas || m.aulas || [];
                                 return (
-                                  <Card key={m.id_modulo || m.id || idx} className="p-4 border-l-4 border-l-blue-500 flex flex-col gap-2">
+                                  <Card
+                                    key={m.id_modulo || m.id || idx}
+                                    className="p-4 border-l-4 border-l-blue-500 flex flex-col gap-2 cursor-pointer hover:shadow-md hover:border-l-blue-400 transition-all group"
+                                    onClick={() => handleOpenModuleDetail(m, training)}
+                                  >
                                      <div className="flex items-center justify-between">
-                                      <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
-                                        {moduloLabel(m.ordem ?? idx, m.modulo?.nome || m.nome)}
+                                      <span className="text-sm font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-500">
+                                        {moduloLabel((m.ordem ?? idx + 1) - 1, m.modulo?.nome || m.nome)}
                                       </span>
-                                      {(m.data_aula || m.modulo?.data_aula) && (
-                                        <Badge variant="outline" className="text-[10px]">
-                                          {new Date((m.data_aula || m.modulo?.data_aula) + "T12:00:00").toLocaleDateString("pt-BR")}
-                                        </Badge>
-                                      )}
+                                      <div className="flex items-center gap-2">
+                                        {(m.data_aula || m.modulo?.data_aula) && (
+                                          <Badge variant="outline" className="text-[10px]">
+                                            {new Date((m.data_aula || m.modulo?.data_aula) + "T12:00:00").toLocaleDateString("pt-BR")}
+                                          </Badge>
+                                        )}
+                                        <Eye className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                      </div>
                                     </div>
-                                    {/* Módulo description removed */}
                                     <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t text-[10px] text-muted-foreground">
                                       {(m.hora_inicio || m.modulo?.hora_inicio) && (
                                         <span className="flex items-center gap-1">
@@ -2234,6 +2411,360 @@ export function Treinamentos() {
           </div>
         </Card>
       )}
+
+      {/* ══════════ MODULE DETAIL OVERLAY ══════════ */}
+      <Dialog open={moduleDetailOpen} onOpenChange={setModuleDetailOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <BookOpen className="w-5 h-5" />
+              {selectedModule && moduloLabel(
+                ((selectedModule.ordem ?? 1) - 1),
+                selectedModule.modulo?.nome || selectedModule.nome
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Detalhes do módulo e cronograma de aulas
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedModule && (() => {
+            const aulas = (selectedModule.modulo?.aulas || selectedModule.aulas || [])
+              .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0));
+
+            // Calcular datas início e fim
+            const datasAulas = aulas
+              .filter((a: any) => a.data_aula)
+              .map((a: any) => a.data_aula)
+              .sort();
+            const dataInicio = datasAulas[0];
+            const dataFim = datasAulas[datasAulas.length - 1];
+
+            const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+
+            return (
+              <div className="space-y-6 py-2">
+                {/* Info Cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-muted/30 rounded-lg p-3 border">
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Data Início</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {dataInicio ? new Date(dataInicio + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
+                    </p>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-3 border">
+                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Data Fim</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {dataFim ? new Date(dataFim + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Aula Calendar List */}
+                <div>
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    Cronograma de Aulas ({aulas.length})
+                  </h4>
+                  {aulas.length > 0 ? (
+                    <div className="space-y-2">
+                      {aulas.map((aula: any, i: number) => {
+                        const dataObj = aula.data_aula ? new Date(aula.data_aula + 'T12:00:00') : null;
+                        const diaSemana = dataObj ? diasSemana[dataObj.getDay()] : '';
+                        const dataFormatada = dataObj ? dataObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Sem data';
+
+                        return (
+                          <div key={aula.id_parte || i} className="flex items-center gap-3 bg-background border rounded-lg p-3 hover:bg-muted/20 transition-colors">
+                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">
+                              {i + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-foreground">Aula {toRoman(i + 1)}</span>
+                                {diaSemana && (
+                                  <Badge variant="outline" className="text-[9px] font-normal">{diaSemana}</Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="w-3 h-3" />
+                                  {dataFormatada}
+                                </span>
+                                {aula.hora_inicio && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {aula.hora_inicio?.slice(0, 5)} — {aula.hora_fim?.slice(0, 5) || '??:??'}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 bg-muted/10 rounded-lg border border-dashed text-sm text-muted-foreground italic">
+                      Nenhuma aula cadastrada para este módulo.
+                    </div>
+                  )}
+                </div>
+
+                {/* Teste de Conhecimento Buttons */}
+                <div className="border-t pt-4 space-y-2">
+                  <Button
+                    className="w-full gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-md"
+                    onClick={() => handleOpenTesteEditor(selectedModule)}
+                  >
+                    <ClipboardList className="w-4 h-4" />
+                    Editar Teste de Conhecimento
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                    onClick={async () => {
+                      try {
+                        const headers = await getAuthHeader();
+                        const res = await fetch(
+                          `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_modulo=${selectedModule.id_modulo}`,
+                          { headers }
+                        );
+                        if (res.ok) {
+                          const data = await res.json();
+                          if (data?.id_teste) {
+                            const link = `${window.location.origin}/teste/${data.id_teste}`;
+                            await navigator.clipboard.writeText(link);
+                            toast.success("Link copiado para a área de transferência!");
+                          } else {
+                            toast.error("Crie um teste primeiro antes de gerar o link.");
+                          }
+                        }
+                      } catch {
+                        toast.error("Erro ao gerar link do teste.");
+                      }
+                    }}
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copiar Link do Teste
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ══════════ TEST EDITOR OVERLAY ══════════ */}
+      <Dialog open={testeEditorOpen} onOpenChange={setTesteEditorOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-violet-500" />
+              Teste de Conhecimento
+              {selectedModule && (
+                <Badge variant="outline" className="ml-2 font-normal">
+                  {moduloLabel((selectedModule.ordem ?? 1) - 1, selectedModule.modulo?.nome || selectedModule.nome)}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Crie perguntas objetivas com alternativas. A nota total é calculada automaticamente.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoadingTeste ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent animate-spin rounded-full" />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
+              {/* Nota Total */}
+              <div className="flex items-center justify-between bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30 border border-violet-200 dark:border-violet-800 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                  <span className="text-sm font-semibold text-violet-700 dark:text-violet-300">Nota Total do Teste</span>
+                </div>
+                <span className="text-2xl font-bold text-violet-600 dark:text-violet-400">
+                  {totalNotaTeste.toFixed(1)}
+                </span>
+              </div>
+
+              {/* Perguntas */}
+              {testePerguntas.length === 0 ? (
+                <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                  <ClipboardList className="w-10 h-10 mx-auto mb-3 text-muted-foreground opacity-40" />
+                  <p className="text-muted-foreground text-sm">Nenhuma pergunta cadastrada.</p>
+                  <p className="text-muted-foreground text-xs mt-1">Clique em "Adicionar Pergunta" para começar.</p>
+                </div>
+              ) : (
+                testePerguntas.map((pergunta: any, pIdx: number) => (
+                  <Card key={pergunta.id_pergunta} className="border shadow-sm overflow-hidden">
+                    <div className="bg-muted/30 px-4 py-2 border-b flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Pergunta {pIdx + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-[10px] text-muted-foreground">Valor:</Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={pergunta.valor_nota}
+                            onChange={(e) => {
+                              const updated = [...testePerguntas];
+                              updated[pIdx] = { ...updated[pIdx], valor_nota: parseFloat(e.target.value) || 0 };
+                              setTestePerguntas(updated);
+                            }}
+                            className="w-16 h-7 text-xs text-center font-bold text-violet-600 dark:text-violet-400"
+                          />
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                          onClick={() => handleRemovePergunta(pIdx)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <CardContent className="p-4 space-y-3">
+                      <Textarea
+                        placeholder="Digite o enunciado da pergunta..."
+                        value={pergunta.enunciado}
+                        onChange={(e) => {
+                          const updated = [...testePerguntas];
+                          updated[pIdx] = { ...updated[pIdx], enunciado: e.target.value };
+                          setTestePerguntas(updated);
+                        }}
+                        className="min-h-[60px] text-sm resize-none"
+                      />
+
+                      {/* Alternativas */}
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                          Alternativas
+                          <span className="text-[9px] font-normal">(clique no círculo para definir a correta)</span>
+                        </Label>
+                        {(pergunta.alternativas || []).map((alt: any, aIdx: number) => (
+                          <div key={alt.id_alternativa} className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSetCorreta(pIdx, aIdx)}
+                              className={cn(
+                                "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all",
+                                alt.is_correta
+                                  ? "border-emerald-500 bg-emerald-500 text-white shadow-md shadow-emerald-500/30"
+                                  : "border-muted-foreground/30 hover:border-muted-foreground/60"
+                              )}
+                              title={alt.is_correta ? "Resposta correta" : "Marcar como correta"}
+                            >
+                              {alt.is_correta && <Check className="w-3.5 h-3.5" />}
+                            </button>
+                            <Input
+                              placeholder={`Alternativa ${String.fromCharCode(65 + aIdx)}...`}
+                              value={alt.texto}
+                              onChange={(e) => {
+                                const updated = [...testePerguntas];
+                                const p = { ...updated[pIdx] };
+                                const alts = [...(p.alternativas || [])];
+                                alts[aIdx] = { ...alts[aIdx], texto: e.target.value };
+                                p.alternativas = alts;
+                                updated[pIdx] = p;
+                                setTestePerguntas(updated);
+                              }}
+                              className={cn(
+                                "flex-1 h-9 text-sm",
+                                alt.is_correta && "border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/20"
+                              )}
+                            />
+                            {(pergunta.alternativas?.length || 0) > 2 && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                                onClick={() => handleRemoveAlternativa(pIdx, aIdx)}
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-foreground gap-1 h-7"
+                          onClick={() => handleAddAlternativa(pIdx)}
+                        >
+                          <Plus className="w-3 h-3" />
+                          Alternativa
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+
+              {/* Add Question Button */}
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-dashed border-2 text-muted-foreground hover:text-foreground hover:border-violet-300"
+                onClick={handleAddPergunta}
+              >
+                <Plus className="w-4 h-4" />
+                Adicionar Pergunta
+              </Button>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-row items-center justify-between border-t pt-4">
+            <div className="flex-1 text-left">
+              {testeData?.id_teste && (
+                <Button
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1 px-2 text-xs"
+                  onClick={() => setConfirmDeleteTesteOpen(true)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Excluir Teste
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setTesteEditorOpen(false)}>Fechar</Button>
+              <Button
+                onClick={handleSaveTeste}
+                disabled={isSavingTeste || testePerguntas.length === 0}
+                className="bg-violet-600 hover:bg-violet-700 text-white gap-1"
+              >
+                <Save className="w-4 h-4" />
+                {isSavingTeste ? 'Salvando...' : 'Salvar Teste'}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm Delete Teste */}
+      <AlertDialog open={confirmDeleteTesteOpen} onOpenChange={setConfirmDeleteTesteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Excluir Teste de Conhecimento
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação removerá permanentemente o teste e todas as suas perguntas e alternativas. Não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteTeste} className="bg-destructive hover:bg-destructive/90">
+              Excluir teste
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* General Settings Dialog removed */}
     </div>
