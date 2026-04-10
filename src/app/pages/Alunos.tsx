@@ -454,7 +454,14 @@ export function Alunos() {
             email: ac.email || sRef?.email || "",
             telefone: ac.telefone || sRef?.telefone || "",
             cpf: ac.cpf || sRef?.cpf || "",
-            cargo: ac.cargo || sRef?.cargo || ""
+            cargo: ac.cargo || sRef?.cargo || "",
+            presencas: (ac.presencas || []).map((p: any) => ({
+              ...p,
+              presenca: !!p.presenca,
+              justificativa_falta: !!p.justificativa_falta,
+              camera_aberta: p.camera_aberta ?? true,
+              participacao: !!p.participacao
+            }))
           };
         });
 
@@ -507,6 +514,12 @@ export function Alunos() {
         justificativa_falta: false,
         nota: null
       };
+
+      // Ensure fields are definitely booleans if they come from DB as null/text
+      newObj.presenca = !!newObj.presenca;
+      newObj.justificativa_falta = !!newObj.justificativa_falta;
+      newObj.camera_aberta = newObj.camera_aberta ?? true;
+      newObj.participacao = !!newObj.participacao;
 
       (newObj as any)[field] = value;
 
@@ -927,7 +940,7 @@ export function Alunos() {
                                           <td className="border border-border text-center p-1">
                                              <input 
                                               type="checkbox" 
-                                              checked={pres?.camera_aberta ?? false}
+                                              checked={pres?.camera_aberta ?? true}
                                               onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "camera_aberta", e.target.checked)}
                                               disabled={!isEditingPlanilha}
                                               className="w-4 h-4 cursor-pointer accent-indigo-600 dark:accent-indigo-400 rounded border-gray-300"
