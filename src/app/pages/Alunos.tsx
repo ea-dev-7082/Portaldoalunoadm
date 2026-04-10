@@ -109,7 +109,7 @@ interface ModuloTreinamento {
   ordem: number;
   nome: string;
   hora_inicio: string | null;
-  aulas?: Array<{ id_aula: string; ordem: number; hora_inicio: string | null; hora_fim: string | null }>;
+  aulas?: Array<{ id_aula: string; id_modulo: string; ordem: number; hora_inicio: string | null; hora_fim: string | null; is_virtual?: boolean }>;
 }
 
 interface Presenca {
@@ -439,7 +439,11 @@ export function Alunos() {
               }]
             };
           }
-          return m;
+          // Mapping id_parte from DB to id_aula for frontend consistency
+          return {
+            ...m,
+            aulas: m.aulas.map((a: any) => ({ ...a, id_aula: a.id_parte }))
+          };
         });
 
         // Merge de dados de contato (usa os dados já carregados na lista simples se ficarem vazios)
@@ -486,6 +490,7 @@ export function Alunos() {
 
   const updatePresenca = (idAluno: string, idModulo: string, idAula: string | undefined, field: string, value: any) => {
     const key = idAula ? `${idAluno}__${idModulo}__${idAula}` : `${idAluno}__${idModulo}__NOTA`;
+    console.log(`Atualizando [${key}].${field} = ${value}`);
     
     if (idAula) {
       // Caso 1: Atualizando dados de Aula
@@ -505,19 +510,34 @@ export function Alunos() {
 
       (newObj as any)[field] = value;
 
-      // Regra: Justificativa só existe se não houver presença
+      // Regras de negócio cruzadas
       if (field === "presenca" && value === true) {
         newObj.justificativa_falta = false;
       }
-      setEditedPresencas(prev => ({ ...prev, [key]: newObj }));
+      if (field === "justificativa_falta" && value === true) {
+        newObj.presenca = false;
+      }
+
+      setEditedPresencas(prev => {
+        const next = { ...prev, [key]: newObj };
+        console.log("Novas presenças editadas:", next);
+        return next;
+      });
 
     } else {
       // Caso 2: Atualizando Nota do Módulo
+      let numericValue: number | null = null;
+      if (typeof value === 'number') numericValue = value;
+      else if (typeof value === 'string' && value.trim() !== "") {
+        const parsed = parseFloat(value.replace(",", "."));
+        numericValue = isNaN(parsed) ? null : parsed;
+      }
+
       const newObj = {
           id_aluno: idAluno,
           id_treinamento: selectedTreinamento,
           id_modulo: idModulo,
-          nota: value as number | null
+          nota: numericValue
       };
       setEditedPresencas(prev => ({ ...prev, [key]: newObj as any }));
     }
@@ -803,35 +823,35 @@ export function Alunos() {
                         </tr>
                         {/* Nível 3: Aulas e Coluna de Nota do Módulo */}
                         <tr className="bg-background">
-                          {modulos.map((m) => {
+                          {modulos.map((m, mIdx) => {
                             const aulas = (m.aulas || []).sort((a,b) => (a.ordem||0)-(b.ordem||0));
                             return (
-                              <React.Fragment key={m.id_modulo}>
+                              <React.Fragment key={`${m.id_modulo || mIdx}-top-h`}>
                                 {aulas.length > 0 ? (
                                   aulas.map((a, i) => (
-                                    <th key={a.id_aula} colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground">
+                                    <th key={`${m.id_modulo}-aula-${a.id_aula || i}`} colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground text-[9px]">
                                       Aula {i + 1}
                                     </th>
                                   ))
                                 ) : (
-                                  <th colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground/50 italic">Sem aulas</th>
+                                  <th key={`${m.id_modulo}-sem-aulas`} colSpan={5} className="border border-border bg-muted/20 px-1 py-1 text-center font-semibold text-muted-foreground/50 italic text-[9px]">Sem aulas</th>
                                 )}
-                                <th rowSpan={2} className="border border-border bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 px-2 py-1 text-center min-w-[50px]">Nota</th>
+                                <th key={`${m.id_modulo}-nota-h`} rowSpan={2} className="border border-border bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 px-2 py-1 text-center min-w-[50px]">Nota</th>
                               </React.Fragment>
                             );
                           })}
                         </tr>
                         {/* Nível 4: Atributos das Aulas */}
                         <tr className="bg-muted/10 text-[9px] uppercase font-bold text-muted-foreground/70">
-                          {modulos.map((m) => (
-                            <React.Fragment key={m.id_modulo}>
-                              {(m.aulas || []).map((a) => (
-                                <React.Fragment key={a.id_aula}>
-                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Pres.</th>
-                                  <th className="border border-border px-0.5 py-1 text-center min-w-[45px]">Pont.</th>
-                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Câm.</th>
-                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Part.</th>
-                                  <th className="border border-border px-0.5 py-1 text-center min-w-[35px]">Just.</th>
+                          {modulos.map((m, mIdx) => (
+                            <React.Fragment key={`${m.id_modulo || mIdx}-h-attrs`}>
+                              {(m.aulas || []).map((a, i) => (
+                                <React.Fragment key={`${m.id_modulo}-${a.id_aula || i}-h-cols`}>
+                                  <th key={`${m.id_modulo}-${a.id_aula || i}-h-pres`} className="border border-border px-0.5 py-1 text-center min-w-[35px]">Pres.</th>
+                                  <th key={`${m.id_modulo}-${a.id_aula || i}-h-pont`} className="border border-border px-0.5 py-1 text-center min-w-[45px]">Pont.</th>
+                                  <th key={`${m.id_modulo}-${a.id_aula || i}-h-cam`} className="border border-border px-0.5 py-1 text-center min-w-[35px]">Câm.</th>
+                                  <th key={`${m.id_modulo}-${a.id_aula || i}-h-part`} className="border border-border px-0.5 py-1 text-center min-w-[35px]">Part.</th>
+                                  <th key={`${m.id_modulo}-${a.id_aula || i}-h-just`} className="border border-border px-0.5 py-1 text-center min-w-[35px]">Just.</th>
                                 </React.Fragment>
                               ))}
                             </React.Fragment>
@@ -876,13 +896,13 @@ export function Alunos() {
                                 const notaModulo = getModuloNota(aluno.id_aluno, m.id_modulo);
 
                                 return (
-                                  <React.Fragment key={m.id_modulo}>
-                                    {aulas.map((a) => {
+                                  <React.Fragment key={`${aluno.id_aluno}-${m.id_modulo}-row`}>
+                                    {aulas.map((a, i) => {
                                       const pres = getPresenca(aluno.id_aluno, m.id_modulo, a.id_aula);
                                       const isAbsent = pres && !pres.presenca;
 
                                       return (
-                                        <React.Fragment key={a.id_aula}>
+                                        <React.Fragment key={`${aluno.id_aluno}-${m.id_modulo}-${a.id_aula || i}-cells`}>
                                           {/* Presença */}
                                           <td className="border border-border text-center p-1">
                                             <input 
@@ -894,10 +914,10 @@ export function Alunos() {
                                             />
                                           </td>
                                           {/* Pontualidade */}
-                                          <td className="border border-border p-0.5">
+                                          <td key={`${a.id_aula}-pont`} className="border border-border p-0.5">
                                             <input 
                                               type="time" 
-                                              value={pres?.pontualidade?.slice(0,5) ?? ""} 
+                                              value={typeof pres?.pontualidade === 'string' ? pres.pontualidade.slice(0,5) : ""} 
                                               onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, a.id_aula, "pontualidade", e.target.value)}
                                               disabled={!isEditingPlanilha}
                                               className="w-full bg-transparent border-0 text-[10px] p-0 text-center focus:ring-1 focus:ring-blue-400 text-foreground disabled:opacity-70" 
@@ -937,15 +957,15 @@ export function Alunos() {
                                       );
                                     })}
                                     {/* Nota do Módulo */}
-                                    <td className="border border-border bg-emerald-500/5 dark:bg-emerald-400/5 text-center p-1">
+                                    <td key={`${m.id_modulo}-nota`} className="border border-border bg-emerald-500/5 dark:bg-emerald-400/5 text-center p-1">
                                         <input 
                                           type="number" 
                                           step="0.1" 
                                           min="0" 
                                           max="10"
-                                          value={notaModulo ?? ""} 
+                                          value={typeof notaModulo === 'number' ? notaModulo : ""} 
                                           placeholder="-"
-                                          onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value ? parseFloat(e.target.value) : null)}
+                                          onChange={(e) => updatePresenca(aluno.id_aluno, m.id_modulo, undefined, "nota", e.target.value)}
                                           disabled={!isEditingPlanilha}
                                           className="w-full bg-transparent border-0 text-[10px] font-bold text-center text-emerald-700 dark:text-emerald-400 p-0 focus:ring-0 disabled:opacity-100" 
                                         />

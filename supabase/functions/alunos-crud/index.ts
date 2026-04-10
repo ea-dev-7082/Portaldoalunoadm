@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
 };
 
 Deno.serve(async (req) => {
@@ -38,34 +39,31 @@ Deno.serve(async (req) => {
 
       // --- VIEW: VISUALIZAÇÃO COMPLETA (Matriz de Acompanhamento) ---
       if (view === "completa" && id_treinamento) {
-        // 1. Fetch training modules
-        const { data: trainingModules, error: tmErr } = await supabase
-          .from("treinamento_modulo")
-          .select("id_modulo, ordem")
+        // 1. Fetch modules for this training directly from the 'modulo' table
+        const { data: mods, error: mErr } = await supabase
+          .from("modulo")
+          .select("*")
           .eq("id_treinamento", id_treinamento)
           .order("ordem", { ascending: true });
-        if (tmErr) throw tmErr;
+        if (mErr) throw mErr;
         
-        const modIds = (trainingModules || []).map(tm => tm.id_modulo);
+        const modIds = (mods || []).map(m => m.id_modulo);
         let formattedMods = [];
 
         if (modIds.length > 0) {
-          const { data: mods, error: mErr } = await supabase
-            .from("modulo")
-            .select("*")
-            .in("id_modulo", modIds);
-          if (mErr) throw mErr;
-
+          // Fetch all lessons (modulo_aula) for these modules
           const { data: allAulas, error: aErr } = await supabase
             .from("modulo_aula")
             .select("*")
-            .eq("id_treinamento", id_treinamento);
+            .in("id_modulo", modIds);
           if (aErr) throw aErr;
 
-          formattedMods = (trainingModules || []).map(tm => {
-            const detail = mods?.find(m => m.id_modulo === tm.id_modulo) || { nome: "Módulo não encontrado" };
-            const aulas = (allAulas || []).filter(a => a.id_modulo === tm.id_modulo).sort((a,b) => (a.ordem||0)-(b.ordem||0));
-            return { ...detail, ...tm, aulas };
+          formattedMods = (mods || []).map(m => {
+            const aulas = (allAulas || [])
+              .filter(a => a.id_modulo === m.id_modulo)
+              .sort((a,b) => (a.ordem||0)-(b.ordem||0))
+              .map(a => ({ ...a, id_aula: a.id_parte }));
+            return { ...m, aulas };
           });
         }
 
