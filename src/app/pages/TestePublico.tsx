@@ -176,6 +176,52 @@ function TestePublicoContent() {
     );
   }
 
+  // ─── INATIVO ──────────────────────────────
+  if (teste.ativo === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-amber-50 dark:from-slate-950 dark:to-amber-950 p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md text-center border">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+            <svg className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste Indisponível</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-3">
+            {teste.motivo_inatividade || "Este teste foi desativado e não está aceitando respostas no momento."}
+          </p>
+          <p className="text-xs text-slate-400">Entre em contato com o administrador do treinamento.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── NÃO ABERTO AINDA ──────────────────────────────
+  if (teste.nao_aberto) {
+    const dataAbertura = teste.data_abertura ? new Date(teste.data_abertura) : null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-blue-950 p-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md text-center border">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste Ainda Não Disponível</h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
+            Este teste será liberado em breve.
+          </p>
+          {dataAbertura && (
+            <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+              <p className="text-xs text-blue-500 font-bold uppercase tracking-wider mb-1">Abertura prevista</p>
+              <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                {dataAbertura.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                {' às '}
+                {dataAbertura.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ─── RESULTADO OVERLAY ──────────────────────────────
   if (resultado) {
     const percentual = resultado.percentual || 0;

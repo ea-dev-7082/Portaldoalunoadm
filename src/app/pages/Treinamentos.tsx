@@ -99,6 +99,17 @@ import { toast } from "sonner"; // Assuming sonner is used, or replace with aler
 
 import React from "react";
 
+// Converte ISO UTC string para formato datetime-local (horário local)
+function isoToLocalDatetime(iso: string): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch { return ""; }
+}
+
 // Converte número para algarismo romano (1→I, 2→II, etc.)
 function toRoman(n: number): string {
   const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
@@ -607,6 +618,13 @@ export function Treinamentos() {
   const [isSavingTeste, setIsSavingTeste] = useState(false);
   const [confirmDeleteTesteOpen, setConfirmDeleteTesteOpen] = useState(false);
 
+  // Test scheduling & status states
+  const [testeDataAbertura, setTesteDataAbertura] = useState("");
+  const [testeDataFechamento, setTesteDataFechamento] = useState("");
+  const [confirmInativarOpen, setConfirmInativarOpen] = useState(false);
+  const [motivoInatividade, setMotivoInatividade] = useState("");
+  const [confirmReativarOpen, setConfirmReativarOpen] = useState(false);
+
   const handleOpenModuleDetail = (modData: any, training: any) => {
     setSelectedModule(modData);
     setSelectedModuleTraining(training);
@@ -627,6 +645,8 @@ export function Treinamentos() {
         if (data) {
           setTesteData(data);
           setTestePerguntas(data.perguntas || []);
+          setTesteDataAbertura(isoToLocalDatetime(data.data_abertura));
+          setTesteDataFechamento(isoToLocalDatetime(data.data_fechamento));
         } else {
           setTesteData(null);
           // Pré-popular com modelo de 10 perguntas padrão
@@ -643,6 +663,8 @@ export function Treinamentos() {
             ]
           }));
           setTestePerguntas(template);
+          setTesteDataAbertura("");
+          setTesteDataFechamento("");
         }
       }
     } catch (err) {
@@ -713,6 +735,12 @@ export function Treinamentos() {
     setIsSavingTeste(true);
     try {
       const headers = await getAuthHeader();
+
+      let abertura: string | null = null;
+      let fechamento: string | null = null;
+      try { if (testeDataAbertura) abertura = new Date(testeDataAbertura).toISOString(); } catch { /* invalid date */ }
+      try { if (testeDataFechamento) fechamento = new Date(testeDataFechamento).toISOString(); } catch { /* invalid date */ }
+
       const res = await fetch(
         `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste`,
         {
@@ -721,7 +749,9 @@ export function Treinamentos() {
           body: JSON.stringify({
             id_modulo: selectedModule.id_modulo,
             titulo: testeData?.titulo || "Teste de Conhecimento",
-            perguntas: testePerguntas
+            perguntas: testePerguntas,
+            data_abertura: abertura,
+            data_fechamento: fechamento
           })
         }
       );
@@ -729,6 +759,8 @@ export function Treinamentos() {
         const saved = await res.json();
         setTesteData(saved);
         setTestePerguntas(saved.perguntas || []);
+        setTesteDataAbertura(isoToLocalDatetime(saved.data_abertura));
+        setTesteDataFechamento(isoToLocalDatetime(saved.data_fechamento));
         toast.success("Teste de conhecimento salvo com sucesso!");
       } else {
         const err = await res.json();
@@ -736,9 +768,8 @@ export function Treinamentos() {
       }
     } catch (err: any) {
       toast.error(err.message || "Erro de conexão");
-    } finally {
-      setIsSavingTeste(false);
     }
+    setIsSavingTeste(false);
   };
 
   const handleDeleteTeste = async () => {
@@ -2565,6 +2596,30 @@ export function Treinamentos() {
                   {moduloLabel((selectedModule.ordem ?? 1) - 1, selectedModule.modulo?.nome || selectedModule.nome)}
                 </Badge>
               )}
+              {/* Status indicator */}
+              {testeData && (
+                <div className="ml-auto flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${testeData.ativo !== false ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30 animate-pulse' : 'bg-red-500 shadow-lg shadow-red-500/30'}`} />
+                  <span className={`text-xs font-medium ${testeData.ativo !== false ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {testeData.ativo !== false ? 'No ar' : 'Inativo'}
+                  </span>
+                  {testeData.ativo !== false ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                      onClick={() => { setMotivoInatividade(""); setConfirmInativarOpen(true); }}
+                    >Inativar</Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                      onClick={() => setConfirmReativarOpen(true)}
+                    >Reativar</Button>
+                  )}
+                </div>
+              )}
             </DialogTitle>
             <DialogDescription>
               Crie perguntas objetivas com alternativas. A nota total é calculada automaticamente.
@@ -2577,6 +2632,40 @@ export function Treinamentos() {
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
+              {/* Agendamento */}
+              <div className="bg-muted/20 rounded-lg p-4 border space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" />
+                  Agendamento
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Data/Hora Abertura</Label>
+                    <Input
+                      type="datetime-local"
+                      value={testeDataAbertura}
+                      onChange={(e) => setTesteDataAbertura(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[10px] text-muted-foreground">Data/Hora Fechamento</Label>
+                    <Input
+                      type="datetime-local"
+                      value={testeDataFechamento}
+                      onChange={(e) => setTesteDataFechamento(e.target.value)}
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                </div>
+                {testeData?.motivo_inatividade && testeData?.ativo === false && (
+                  <div className="flex items-start gap-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-lg p-2.5 border border-red-200 dark:border-red-800">
+                    <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span><strong>Motivo da inatividade:</strong> {testeData.motivo_inatividade}</span>
+                  </div>
+                )}
+              </div>
+
               {/* Nota Total */}
               <div className="flex items-center justify-between bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30 border border-violet-200 dark:border-violet-800 rounded-lg px-4 py-3">
                 <div className="flex items-center gap-2">
@@ -2761,6 +2850,113 @@ export function Treinamentos() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteTeste} className="bg-destructive hover:bg-destructive/90">
               Excluir teste
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ══════════ INATIVAR TESTE DIALOG ══════════ */}
+      <AlertDialog open={confirmInativarOpen} onOpenChange={setConfirmInativarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" />
+              Inativar Teste de Conhecimento
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              O teste ficará offline e não aceitará novas respostas. Informe o motivo da inativação:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-2">
+            <Textarea
+              placeholder="Motivo da inatividade (obrigatório)..."
+              value={motivoInatividade}
+              onChange={(e) => setMotivoInatividade(e.target.value)}
+              className="min-h-[80px] text-sm resize-none"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!motivoInatividade.trim()}
+              onClick={async () => {
+                if (!testeData?.id_teste || !motivoInatividade.trim()) return;
+                try {
+                  const headers = await getAuthHeader();
+                  const res = await fetch(
+                    `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_teste=${testeData.id_teste}`,
+                    {
+                      method: "PATCH",
+                      headers: { ...headers, "Content-Type": "application/json" },
+                      body: JSON.stringify({ ativo: false, motivo_inatividade: motivoInatividade.trim() })
+                    }
+                  );
+                  if (res.ok) {
+                    const updated = await res.json();
+                    setTesteData((prev: any) => ({ ...prev, ativo: false, motivo_inatividade: motivoInatividade.trim() }));
+                    setConfirmInativarOpen(false);
+                    toast.success("Teste inativado com sucesso.");
+                  }
+                } catch (err: any) {
+                  toast.error(err.message || "Erro ao inativar teste.");
+                }
+              }}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Confirmar Inativação
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ══════════ REATIVAR TESTE DIALOG ══════════ */}
+      <AlertDialog open={confirmReativarOpen} onOpenChange={setConfirmReativarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-emerald-600 flex items-center gap-2">
+              <Check className="w-5 h-5" />
+              Reativar Teste de Conhecimento
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              O teste voltará a ficar disponível para os alunos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {testeData?.motivo_inatividade && (
+            <div className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 rounded-lg p-3 border border-amber-200 dark:border-amber-800">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold text-xs mb-0.5">Motivo da inativação anterior:</p>
+                <p>{testeData.motivo_inatividade}</p>
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!testeData?.id_teste) return;
+                try {
+                  const headers = await getAuthHeader();
+                  const res = await fetch(
+                    `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_teste=${testeData.id_teste}`,
+                    {
+                      method: "PATCH",
+                      headers: { ...headers, "Content-Type": "application/json" },
+                      body: JSON.stringify({ ativo: true, motivo_inatividade: null })
+                    }
+                  );
+                  if (res.ok) {
+                    setTesteData((prev: any) => ({ ...prev, ativo: true, motivo_inatividade: null }));
+                    setConfirmReativarOpen(false);
+                    toast.success("Teste reativado com sucesso!");
+                  }
+                } catch (err: any) {
+                  toast.error(err.message || "Erro ao reativar teste.");
+                }
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              Confirmar Reativação
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
