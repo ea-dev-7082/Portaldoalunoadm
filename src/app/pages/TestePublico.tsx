@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router";
 import { ThemeProvider } from "next-themes";
 
@@ -35,28 +35,51 @@ function toRoman(n: number): string {
   return result;
 }
 
+function getPenalidadeLabel(tentativa: number, isExtra: boolean): { texto: string; cor: string } | null {
+  if (isExtra) return { texto: "Teste Extra: serão subtraídos 3 pontos da nota integral", cor: "amber" };
+  if (tentativa === 2) return { texto: "2ª tentativa: será subtraído 1 ponto da nota integral", cor: "amber" };
+  if (tentativa >= 3) return { texto: "3ª tentativa: serão subtraídos 3 pontos da nota integral", cor: "red" };
+  return null;
+}
+
 function TestePublicoContent() {
   const { id_teste } = useParams<{ id_teste: string }>();
 
-  // State
   const [teste, setTeste] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // CPF / Aluno
   const [cpf, setCpf] = useState("");
   const [isValidating, setIsValidating] = useState(false);
   const [alunoValidado, setAlunoValidado] = useState<any>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
 
-  // Respostas
-  const [respostas, setRespostas] = useState<Record<string, string>>({});
+  // Info de tentativas (vinda do validar-cpf)
+  const [tentativasInfo, setTentativasInfo] = useState<any>(null);
 
-  // Envio
+  const [respostas, setRespostas] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
+  const [perguntasShuffled, setPerguntasShuffled] = useState<any[]>([]);
 
-  // Fetch teste on mount
+  const shuffleArray = (array: any[]) => {
+    const newArr = [...array];
+    for (let i = newArr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    }
+    return newArr;
+  };
+
+
+  const shufflePerguntas = (perguntasRaw: any[]) => {
+    if (!perguntasRaw) return [];
+    return perguntasRaw.map((p: any) => ({
+      ...p,
+      alternativas: shuffleArray(p.alternativas || [])
+    }));
+  };
+
   useEffect(() => {
     if (!id_teste) return;
     (async () => {
@@ -66,6 +89,11 @@ function TestePublicoContent() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erro ao carregar teste");
         setTeste(data);
+        
+        // Randomizar alternativas inicialmente
+        if (data.perguntas) {
+          setPerguntasShuffled(shufflePerguntas(data.perguntas));
+        }
       } catch (err: any) {
         setLoadError(err.message);
       } finally {
@@ -73,6 +101,8 @@ function TestePublicoContent() {
       }
     })();
   }, [id_teste]);
+
+
 
   const handleValidarCPF = async () => {
     const cpfLimpo = cpf.replace(/\D/g, "");
@@ -91,8 +121,10 @@ function TestePublicoContent() {
       if (!res.ok) {
         setCpfError(data.error || "CPF não encontrado.");
         setAlunoValidado(null);
+        setTentativasInfo(null);
       } else {
         setAlunoValidado(data.aluno);
+        setTentativasInfo(data);
         setCpfError(null);
       }
     } catch {
@@ -106,25 +138,23 @@ function TestePublicoContent() {
     setRespostas(prev => ({ ...prev, [id_pergunta]: id_alternativa }));
   };
 
-  const perguntas = teste?.perguntas || [];
+  const perguntas = perguntasShuffled || [];
+
   const todasRespondidas = perguntas.length > 0 && perguntas.every((p: any) => respostas[p.id_pergunta]);
-  const podeEnviar = alunoValidado && todasRespondidas;
+  const bloqueado = tentativasInfo?.bloqueado;
+  const podeEnviar = alunoValidado && todasRespondidas && !bloqueado;
 
   const handleEnviar = async () => {
     if (!podeEnviar) return;
     setIsSubmitting(true);
     try {
       const respostasArray = Object.entries(respostas).map(([id_pergunta, id_alternativa_selecionada]) => ({
-        id_pergunta,
-        id_alternativa_selecionada,
+        id_pergunta, id_alternativa_selecionada,
       }));
-
       const res = await apiFetch(`?action=enviar`, {
         method: "POST",
         body: JSON.stringify({
-          id_teste,
-          id_aluno: alunoValidado.id_aluno,
-          respostas: respostasArray,
+          id_teste, id_aluno: alunoValidado.id_aluno, respostas: respostasArray,
         }),
       });
       const data = await res.json();
@@ -140,14 +170,30 @@ function TestePublicoContent() {
   const handleNovaTentativa = () => {
     setRespostas({});
     setResultado(null);
+    // Resetar validação mas MANTER o CPF (como pedido pelo usuário)
+    setAlunoValidado(null);
+    setTentativasInfo(null);
+    // setCpf(""); // Comentado para decorar o CPF anterior
+    
+    // Gerar nova sequência aleatória de alternativas para a nova tentativa
+    if (teste?.perguntas) {
+      setPerguntasShuffled(shufflePerguntas(teste.perguntas));
+    }
+    
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Computed values
+
+
   const nomeModulo = teste?.modulo
     ? `Módulo ${toRoman(teste.modulo.ordem || 1)}${teste.modulo.nome ? ` — ${teste.modulo.nome}` : ""}`
     : "";
   const nomeTreinamento = teste?.modulo?.treinamento?.nome || "";
+
+  // Info de penalidade para exibição
+  const proximaTentativa = tentativasInfo?.proxima_tentativa || 1;
+  const isTesteExtra = tentativasInfo?.is_teste_extra || false;
+  const penalidadeInfo = tentativasInfo ? getPenalidadeLabel(proximaTentativa, isTesteExtra) : null;
 
   // ─── LOADING ──────────────────────────────
   if (isLoading) {
@@ -204,9 +250,7 @@ function TestePublicoContent() {
             <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste Ainda Não Disponível</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-            Este teste será liberado em breve.
-          </p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Este teste será liberado em breve.</p>
           {dataAbertura && (
             <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
               <p className="text-xs text-blue-500 font-bold uppercase tracking-wider mb-1">Abertura prevista</p>
@@ -230,13 +274,10 @@ function TestePublicoContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-violet-50 dark:from-slate-950 dark:to-violet-950 p-4">
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border relative overflow-hidden">
-          {/* Background decoration */}
           <div className={`absolute inset-0 opacity-5 ${isAprovado ? "bg-emerald-500" : "bg-amber-500"}`} />
 
           <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
-            isAprovado
-              ? "bg-emerald-100 dark:bg-emerald-900/30"
-              : "bg-amber-100 dark:bg-amber-900/30"
+            isAprovado ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
           }`}>
             {isAprovado ? (
               <svg className="w-10 h-10 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -248,9 +289,23 @@ function TestePublicoContent() {
           <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-1">
             {isAprovado ? "Parabéns!" : "Teste Concluído"}
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
             {alunoValidado?.nome}, aqui está o seu resultado:
           </p>
+
+          {/* Penalidade aplicada */}
+          {resultado.penalidade > 0 && (
+            <div className="mb-4 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-200 dark:border-amber-800 text-left">
+              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <div>
+                <p className="font-semibold">Penalidade aplicada: −{resultado.penalidade} ponto(s)</p>
+                <p className="text-xs mt-0.5">
+                  Nota integral: {resultado.nota_integral} → Nota final: {resultado.nota_obtida}
+                  {resultado.is_teste_extra && " (Teste Extra)"}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Note circle */}
           <div className={`w-32 h-32 mx-auto rounded-full border-4 flex flex-col items-center justify-center mb-6 ${
@@ -273,12 +328,35 @@ function TestePublicoContent() {
             </div>
           </div>
 
-          <button
-            onClick={handleNovaTentativa}
-            className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors shadow-lg shadow-violet-500/20"
-          >
-            Fazer Nova Tentativa
-          </button>
+          {/* Aviso sobre próxima tentativa */}
+          {resultado.tentativas < 3 && (
+            <div className="mb-4 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5 border">
+              {resultado.tentativas === 1
+                ? "Na próxima tentativa será subtraído 1 ponto da nota integral."
+                : "Na próxima tentativa serão subtraídos 3 pontos da nota integral."}
+            </div>
+          )}
+          {resultado.tentativas >= 3 && !resultado.is_teste_extra && (
+            <div className="mb-4 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-lg p-2.5 border border-red-200 dark:border-red-800">
+              Você atingiu o número máximo de tentativas para este teste.
+            </div>
+          )}
+
+          {resultado.tentativas < 3 ? (
+            <button
+              onClick={handleNovaTentativa}
+              className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors shadow-lg shadow-violet-500/20"
+            >
+              Fazer Nova Tentativa
+            </button>
+          ) : (
+            <button
+              disabled
+              className="w-full py-3 px-4 rounded-xl bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-semibold cursor-not-allowed"
+            >
+              Tentativas Esgotadas
+            </button>
+          )}
         </div>
       </div>
     );
@@ -297,6 +375,11 @@ function TestePublicoContent() {
             <div>
               <h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight">
                 {teste.titulo || "Teste de Conhecimento"}
+                {isTesteExtra && (
+                  <span className="ml-2 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+                    Teste Extra
+                  </span>
+                )}
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {nomeTreinamento} {nomeModulo && `• ${nomeModulo}`}
@@ -325,7 +408,7 @@ function TestePublicoContent() {
               onChange={(e) => {
                 setCpf(formatCPF(e.target.value));
                 setCpfError(null);
-                if (alunoValidado) { setAlunoValidado(null); }
+                if (alunoValidado) { setAlunoValidado(null); setTentativasInfo(null); }
               }}
               disabled={!!alunoValidado}
               maxLength={14}
@@ -351,7 +434,7 @@ function TestePublicoContent() {
               </button>
             ) : (
               <button
-                onClick={() => { setAlunoValidado(null); setCpf(""); setRespostas({}); }}
+                onClick={() => { setAlunoValidado(null); setCpf(""); setRespostas({}); setTentativasInfo(null); }}
                 className="h-12 px-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 text-sm transition-colors shrink-0"
               >
                 Alterar
@@ -359,7 +442,6 @@ function TestePublicoContent() {
             )}
           </div>
 
-          {/* Error */}
           {cpfError && (
             <div className="mt-3 flex items-start gap-2 text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800">
               <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -367,7 +449,6 @@ function TestePublicoContent() {
             </div>
           )}
 
-          {/* Aluno validated card */}
           {alunoValidado && (
             <div className="mt-3 flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
               <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
@@ -382,10 +463,41 @@ function TestePublicoContent() {
               <svg className="w-6 h-6 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
           )}
+
+          {/* Bloqueado por tentativas */}
+          {bloqueado && (
+            <div className="mt-3 bg-red-50 dark:bg-red-950/30 rounded-xl p-5 border border-red-200 dark:border-red-800 text-center">
+              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+              </div>
+              <p className="font-bold text-red-700 dark:text-red-400 text-sm mb-1">Número Máximo de Tentativas Excedido</p>
+              <p className="text-xs text-red-600/70 dark:text-red-400/70">
+                Você já realizou {tentativasInfo?.tentativas_anteriores || 3} tentativas neste teste. Entre em contato com o administrador para solicitar um teste extra.
+              </p>
+            </div>
+          )}
+
+          {/* Aviso de penalidade para a próxima tentativa */}
+          {alunoValidado && !bloqueado && penalidadeInfo && (
+            <div className={`mt-3 flex items-start gap-2 text-sm rounded-lg p-3 border ${
+              penalidadeInfo.cor === "red"
+                ? "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                : "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+            }`}>
+              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              <div>
+                <p className="font-semibold">{penalidadeInfo.texto}</p>
+                <p className="text-xs opacity-80 mt-0.5">
+                  Esta é a sua {proximaTentativa}ª tentativa.
+                  {proximaTentativa === 3 && !isTesteExtra && " Esta é sua última tentativa regular."}
+                </p>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* ──── SEÇÃO PERGUNTAS ──── */}
-        {perguntas.map((pergunta: any, pIdx: number) => (
+        {!bloqueado && perguntas.map((pergunta: any, pIdx: number) => (
           <section
             key={pergunta.id_pergunta}
             className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6 transition-all ${
@@ -421,13 +533,9 @@ function TestePublicoContent() {
                       }`}
                   >
                     <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                      isSelected
-                        ? "border-violet-500 bg-violet-500"
-                        : "border-slate-300 dark:border-slate-600"
+                      isSelected ? "border-violet-500 bg-violet-500" : "border-slate-300 dark:border-slate-600"
                     }`}>
-                      {isSelected && (
-                        <div className="w-2.5 h-2.5 rounded-full bg-white" />
-                      )}
+                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
                     </div>
                     <span className={`flex-1 ${isSelected ? "text-violet-700 dark:text-violet-300 font-medium" : "text-slate-700 dark:text-slate-300"}`}>
                       <span className="font-bold mr-1.5 text-slate-400">{String.fromCharCode(65 + aIdx)})</span>
@@ -441,35 +549,44 @@ function TestePublicoContent() {
         ))}
 
         {/* ──── BARRA DE ENVIO ──── */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6 sticky bottom-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="text-sm text-slate-500 dark:text-slate-400">
-              {!alunoValidado ? (
-                <span className="text-amber-600 dark:text-amber-400 font-medium">⚠ Valide seu CPF para continuar</span>
-              ) : !todasRespondidas ? (
-                <span>
-                  {Object.keys(respostas).length} de {perguntas.length} pergunta(s) respondida(s)
-                </span>
-              ) : (
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Todas respondidas!</span>
-              )}
+        {!bloqueado && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6 sticky bottom-4">
+            {/* Aviso de penalidade na barra de envio */}
+            {penalidadeInfo && (
+              <div className={`mb-3 text-xs rounded-lg px-3 py-2 border ${
+                penalidadeInfo.cor === "red"
+                  ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                  : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+              }`}>
+                ⚠ {penalidadeInfo.texto}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                {!alunoValidado ? (
+                  <span className="text-amber-600 dark:text-amber-400 font-medium">⚠ Valide seu CPF para continuar</span>
+                ) : !todasRespondidas ? (
+                  <span>{Object.keys(respostas).length} de {perguntas.length} pergunta(s) respondida(s)</span>
+                ) : (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Todas respondidas!</span>
+                )}
+              </div>
+              <button
+                onClick={handleEnviar}
+                disabled={!podeEnviar || isSubmitting}
+                className="h-12 px-8 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-600 text-white font-semibold text-sm transition-all shadow-lg shadow-violet-500/20 disabled:shadow-none disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Enviando...
+                  </span>
+                ) : "Enviar Teste"}
+              </button>
             </div>
-            <button
-              onClick={handleEnviar}
-              disabled={!podeEnviar || isSubmitting}
-              className="h-12 px-8 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-600 text-white font-semibold text-sm transition-all shadow-lg shadow-violet-500/20 disabled:shadow-none disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <span className="flex items-center gap-2">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Enviando...
-                </span>
-              ) : "Enviar Teste"}
-            </button>
           </div>
-        </div>
+        )}
 
-        {/* Spacer */}
         <div className="h-8" />
       </main>
     </div>

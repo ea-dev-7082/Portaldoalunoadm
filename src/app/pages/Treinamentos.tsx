@@ -624,6 +624,13 @@ export function Treinamentos() {
   const [confirmInativarOpen, setConfirmInativarOpen] = useState(false);
   const [motivoInatividade, setMotivoInatividade] = useState("");
   const [confirmReativarOpen, setConfirmReativarOpen] = useState(false);
+  
+  // Teste Extra Participant Management States
+  const [isTesteExtraOpen, setIsTesteExtraOpen] = useState(false);
+  const [testeExtraAlunos, setTesteExtraAlunos] = useState<any[]>([]);
+  const [isLoadingTesteExtra, setIsLoadingTesteExtra] = useState(false);
+  const [testeExtraSearch, setTesteExtraSearch] = useState("");
+
 
   const handleOpenModuleDetail = (modData: any, training: any) => {
     setSelectedModule(modData);
@@ -730,7 +737,65 @@ export function Treinamentos() {
     });
   };
 
+  // ═══════════════════════════════════════════════════════════════════
+  // TESTE EXTRA MANAGEMENT HANDLERS
+  // ═══════════════════════════════════════════════════════════════════
+  const handleOpenTesteExtra = async (id_teste: string, id_treinamento: string) => {
+    setIsLoadingTesteExtra(true);
+    setIsTesteExtraOpen(true);
+    try {
+      const headers = await getAuthHeader();
+      const resp = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste-extra&id_teste=${id_teste}&id_treinamento=${id_treinamento}`, {
+        headers: { ...headers }
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      setTesteExtraAlunos(data || []);
+    } catch (err: any) {
+      console.error("Erro ao carregar alunos do teste extra:", err);
+      toast.error("Falha ao carregar lista de alunos.");
+    } finally {
+      setIsLoadingTesteExtra(false);
+    }
+  };
+
+  const handleToggleTesteExtra = async (id_aluno: string, currentStatus: boolean) => {
+    if (!testeData?.id_teste || !selectedModuleTraining?.id_treinamento) return;
+    
+    // Optimistic update
+    setTesteExtraAlunos(prev => prev.map(a => a.id_aluno === id_aluno ? { ...a, tem_permissao: !currentStatus } : a));
+
+    try {
+      const headers = await getAuthHeader();
+      const resp = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste-extra&id_teste=${testeData.id_teste}&id_treinamento=${selectedModuleTraining.id_treinamento}`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ id_aluno, conceder: !currentStatus })
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+    } catch (err: any) {
+      console.error("Erro ao alternar permissão de teste extra:", err);
+      toast.error("Erro ao salvar mudança.");
+      // Rollback
+      setTesteExtraAlunos(prev => prev.map(a => a.id_aluno === id_aluno ? { ...a, tem_permissao: currentStatus } : a));
+    }
+  };
+
+  const filteredExtraAlunos = useMemo(() => {
+    if (!testeExtraSearch) return testeExtraAlunos;
+    const s = testeExtraSearch.toLowerCase();
+    return testeExtraAlunos.filter(a => 
+      a.nome?.toLowerCase().includes(s) || 
+      a.cpf?.includes(s)
+    );
+  }, [testeExtraAlunos, testeExtraSearch]);
+
   const handleSaveTeste = async () => {
+
     if (!selectedModule) return;
     setIsSavingTeste(true);
     try {
@@ -2618,8 +2683,19 @@ export function Treinamentos() {
                       onClick={() => setConfirmReativarOpen(true)}
                     >Reativar</Button>
                   )}
+                  {/* Teste Extra Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 text-[10px] ml-1 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800"
+                    onClick={() => handleOpenTesteExtra(testeData.id_teste, selectedModuleTraining.id_treinamento)}
+                  >
+                    <UserCheck className="w-3 h-3" />
+                    Teste Extra
+                  </Button>
                 </div>
               )}
+
             </DialogTitle>
             <DialogDescription>
               Crie perguntas objetivas com alternativas. A nota total é calculada automaticamente.
@@ -2962,7 +3038,83 @@ export function Treinamentos() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* General Settings Dialog removed */}
+      {/* ══════════ TESTE EXTRA PARTICIPANTS DIALOG ══════════ */}
+      <Dialog open={isTesteExtraOpen} onOpenChange={setIsTesteExtraOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-violet-500" />
+              Participantes - Teste Extra
+            </DialogTitle>
+            <DialogDescription>
+              Conceda permissão para alunos específicos realizarem o teste mesmo excedendo tentativas ou se o teste estiver expirado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-4 flex-1 flex flex-col overflow-hidden">
+            <SearchInput
+              placeholder="Buscar por nome ou CPF..."
+              value={testeExtraSearch}
+              onChange={(e) => setTesteExtraSearch(e.target.value)}
+              className="h-9"
+            />
+
+            {isLoadingTesteExtra ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent animate-spin rounded-full" />
+              </div>
+            ) : (
+              <ScrollArea className="flex-1 pr-3">
+                <div className="space-y-2">
+                  {filteredExtraAlunos.length > 0 ? (
+                    filteredExtraAlunos.map((aluno) => (
+                      <div 
+                        key={aluno.id_aluno}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                      >
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium leading-none">{aluno.nome}</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">{aluno.cpf}</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                          <Badge 
+                            variant={aluno.tem_permissao ? "default" : "secondary"}
+                            className={`text-[10px] py-0 h-4 ${aluno.tem_permissao ? 'bg-violet-500 hover:bg-violet-600' : ''}`}
+                          >
+                            {aluno.tem_permissao ? 'Permitido' : 'Padrão'}
+                          </Badge>
+                          
+                          <Button
+                            variant={aluno.tem_permissao ? "destructive" : "outline"}
+                            size="sm"
+                            className="h-7 px-2 text-[10px]"
+                            onClick={() => handleToggleTesteExtra(aluno.id_aluno, aluno.tem_permissao)}
+                          >
+                            {aluno.tem_permissao ? 'Revogar' : 'Conceder'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-10 text-muted-foreground">
+                      <Users className="w-10 h-10 mx-auto mb-2 opacity-20" />
+                      <p className="text-sm">Nenhum aluno encontrado.</p>
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+
+          <DialogFooter className="border-t pt-4">
+            <Button className="w-full sm:w-auto" onClick={() => setIsTesteExtraOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }
