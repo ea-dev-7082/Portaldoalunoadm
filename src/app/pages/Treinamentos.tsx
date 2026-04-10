@@ -76,7 +76,11 @@ import {
   Table as TableIcon,
   BookOpen,
   CircleDot,
-  ClipboardList
+  ClipboardList,
+  CheckCircle2,
+  Power,
+  PowerOff,
+  Link2
 } from "lucide-react";
 import { Checkbox } from "../components/ui/checkbox";
 import { SearchInput } from "../components/ui/search-input";
@@ -277,7 +281,10 @@ export function Treinamentos() {
       const trArray = Array.isArray(trData) ? trData : [];
       
       // Log for diagnostic purposes
-      console.log("Treinamentos data from API:", trData);
+      console.log("DEBUG: Raw API Data:", trData);
+      trArray.forEach((t: any) => {
+        console.log(`DEBUG: Training ${t.nome} - Modules: ${t.modules?.length || 0}, Students: ${t.students?.length || 0}`);
+      });
 
       const mapped = trArray.map((t: any) => {
         const uniqueCompaniesMap = new Map();
@@ -630,6 +637,8 @@ export function Treinamentos() {
   const [testeExtraAlunos, setTesteExtraAlunos] = useState<any[]>([]);
   const [isLoadingTesteExtra, setIsLoadingTesteExtra] = useState(false);
   const [testeExtraSearch, setTesteExtraSearch] = useState("");
+  const [currentExtraTesteId, setCurrentExtraTesteId] = useState<string | null>(null);
+  const [currentExtraTrainingId, setCurrentExtraTrainingId] = useState<string | null>(null);
 
 
   const handleOpenModuleDetail = (modData: any, training: any) => {
@@ -743,6 +752,8 @@ export function Treinamentos() {
   const handleOpenTesteExtra = async (id_teste: string, id_treinamento: string) => {
     setIsLoadingTesteExtra(true);
     setIsTesteExtraOpen(true);
+    setCurrentExtraTesteId(id_teste);
+    setCurrentExtraTrainingId(id_treinamento);
     try {
       const headers = await getAuthHeader();
       const resp = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste-extra&id_teste=${id_teste}&id_treinamento=${id_treinamento}`, {
@@ -760,14 +771,20 @@ export function Treinamentos() {
   };
 
   const handleToggleTesteExtra = async (id_aluno: string, currentStatus: boolean) => {
-    if (!testeData?.id_teste || !selectedModuleTraining?.id_treinamento) return;
+    const trainingId = currentExtraTrainingId || selectedModuleTraining?.id || selectedModuleTraining?.id_treinamento;
+    const testId = currentExtraTesteId;
+
+    if (!testId || !trainingId) {
+      toast.error("Erro: Identificadores não encontrados.");
+      return;
+    }
     
     // Optimistic update
     setTesteExtraAlunos(prev => prev.map(a => a.id_aluno === id_aluno ? { ...a, tem_permissao: !currentStatus } : a));
 
     try {
       const headers = await getAuthHeader();
-      const resp = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste-extra&id_teste=${testeData.id_teste}&id_treinamento=${selectedModuleTraining.id_treinamento}`, {
+      const resp = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste-extra&id_teste=${testId}&id_treinamento=${trainingId}`, {
         method: 'POST',
         headers: {
           ...headers,
@@ -947,24 +964,29 @@ export function Treinamentos() {
     fetchCompanies();
 
     setEditingTrainingId(training.id);
-    const raw = training.raw;
+    const raw = training.raw || {};
+    const modulesRaw = raw.modules || raw.modulo || raw.treinamentos_modulos || [];
+    const studentsRaw = raw.students || raw.alunos || raw.treinamentos_alunos || raw.aluno_treinamento_progresso || [];
     setTrainingData({
-      name: raw.nome,
+      name: raw.nome || "",
       status: raw.status || "Agendado",
-      carga_horaria: raw.carga_horaria || "",
+      carga_horaria: raw.carga_horaria ?? "",
       startDate: formatForDateTimeLocal(raw.data_inicio),
       endDate: formatForDateTimeLocal(raw.data_fim),
       partnership: "venda-direta",
       partnershipCompany: "",
-      students: raw.students ? raw.students.map((s: any) => s.id_aluno) : []
+      students: studentsRaw.map((s: any) => {
+        const al = s.aluno || s.alunos || s;
+        return al.id_aluno || al.id || s.id_aluno || s.id;
+      }).filter(Boolean)
     });
 
-    if (raw.modules && raw.modules.length > 0) {
-      setTrainingModules(raw.modules.map((m: any) => ({
+    if (modulesRaw.length > 0) {
+      setTrainingModules(modulesRaw.map((m: any) => ({
         id: m.id_modulo || `mod-temp-${Date.now()}-${m.ordem}`,
         name: m.nome || "", // Module name is now direct
-        aulas: (m.aulas || []).map((p: any) => ({
-          id_parte: p.id_parte,
+        aulas: (m.aulas || m.modulo_aula || []).map((p: any) => ({
+          id_parte: p.id_parte || p.id_aula,
           ordem: p.ordem,
           data_aula: p.data_aula || "",
           hora_inicio: p.hora_inicio || "",
@@ -972,7 +994,7 @@ export function Treinamentos() {
           duracao_minutos: p.duracao_minutos || 0
         })),
       })));
-      setActiveTab(raw.modules[0].id_modulo || (raw.modules.length > 0 ? `mod-temp-${Date.now()}-0` : ""));
+      setActiveTab(modulesRaw[0].id_modulo || `mod-temp-${Date.now()}-0`);
     } else {
       setTrainingModules([emptyModule(0)]);
       setActiveTab("");
@@ -1366,18 +1388,57 @@ export function Treinamentos() {
                                         <Eye className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                                       </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-2 mt-auto pt-2 border-t text-[10px] text-muted-foreground">
-                                      {(m.hora_inicio || m.modulo?.hora_inicio) && (
-                                        <span className="flex items-center gap-1">
-                                          <Clock className="w-3 h-3" /> {(m.hora_inicio || m.modulo?.hora_inicio).slice(0, 5)} - {(m.hora_fim || m.modulo?.hora_fim)?.slice(0, 5)}
-                                        </span>
-                                      )}
-                                      {modAulas.length > 0 && (
-                                        <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full">
-                                          {modAulas.length} aula(s)
-                                        </span>
-                                      )}
-                                    </div>
+                                      <div className="flex flex-wrap items-center gap-2 mt-auto pt-2 border-t text-[10px] text-muted-foreground">
+                                        {(m.hora_inicio || m.modulo?.hora_inicio) && (
+                                          <span className="flex items-center gap-1">
+                                            <Clock className="w-3 h-3" /> {(m.hora_inicio || m.modulo?.hora_inicio).slice(0, 5)} - {(m.hora_fim || m.modulo?.hora_fim)?.slice(0, 5)}
+                                          </span>
+                                        )}
+                                        {modAulas.length > 0 && (
+                                          <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full">
+                                            {modAulas.length} aula(s)
+                                          </span>
+                                        )}
+                                        {(() => {
+                                          const testData = m.teste || m.modulo?.teste;
+                                          const testInfo = Array.isArray(testData) ? testData[0] : testData;
+                                          if (testInfo) {
+                                            return (
+                                              <span className={cn(
+                                                "flex items-center gap-1 px-2 py-0.5 rounded-full",
+                                                testInfo.ativo ? "bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50" : "bg-amber-50 text-amber-700 border border-amber-100"
+                                              )}>
+                                                <ClipboardList className="w-3 h-3" />
+                                                Teste {testInfo.ativo ? 'Ativo' : 'Pausado'}
+                                              </span>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
+                                      </div>
+                                      
+                                      {/* Quick Action for Teste Extra if test exists */}
+                                      {(() => {
+                                        const testData = m.teste || m.modulo?.teste;
+                                        const testInfo = Array.isArray(testData) ? testData[0] : testData;
+                                        if (testInfo) {
+                                          return (
+                                            <Button 
+                                              variant="ghost" 
+                                              size="sm" 
+                                              className="mt-2 h-7 text-[10px] gap-1.5 hover:bg-violet-50 hover:text-violet-700 dark:hover:bg-violet-950 text-muted-foreground transition-all border border-transparent hover:border-violet-100 dark:hover:border-violet-900 rounded-lg"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenTesteExtra(testInfo.id_teste, training.id);
+                                              }}
+                                            >
+                                              <Users className="w-3 h-3" />
+                                              Gerenciar Teste Extra
+                                            </Button>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
                                   </Card>
                                 );
                               });
@@ -2509,196 +2570,244 @@ export function Treinamentos() {
       )}
 
       {/* ══════════ MODULE DETAIL OVERLAY ══════════ */}
+      
       <Dialog open={moduleDetailOpen} onOpenChange={setModuleDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
-              <BookOpen className="w-5 h-5" />
-              {selectedModule && moduloLabel(
-                ((selectedModule.ordem ?? 1) - 1),
-                selectedModule.modulo?.nome || selectedModule.nome
-              )}
-            </DialogTitle>
-            <DialogDescription>
-              Detalhes do módulo e cronograma de aulas
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white relative">
+            <div className="relative z-10 space-y-2">
+              <div className="flex items-center gap-2 text-blue-100/80 text-xs font-bold uppercase tracking-[0.2em]">
+                <BookOpen className="w-4 h-4" />
+                Detalhes do Módulo
+              </div>
+              <DialogTitle className="text-3xl font-black tracking-tight leading-tight">
+                {selectedModule && moduloLabel(
+                  ((selectedModule.ordem ?? 1) - 1),
+                  selectedModule.modulo?.nome || selectedModule.nome
+                )}
+              </DialogTitle>
+              <DialogDescription className="text-blue-100/70 text-base max-w-md">
+                Acompanhe o cronograma de aulas e gerencie o teste de conhecimento deste módulo.
+              </DialogDescription>
+            </div>
+            {/* Abstract BG Pattern */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-blue-400/10 rounded-full -ml-10 -mb-10 blur-2xl pointer-events-none" />
+          </div>
 
-          {selectedModule && (() => {
-            const aulas = (selectedModule.modulo?.aulas || selectedModule.aulas || [])
-              .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0));
+          <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-background">
+            {selectedModule && (() => {
+              const aulas = (selectedModule.modulo?.aulas || selectedModule.aulas || [])
+                .sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0));
 
-            // Calcular datas início e fim
-            const datasAulas = aulas
-              .filter((a: any) => a.data_aula)
-              .map((a: any) => a.data_aula)
-              .sort();
-            const dataInicio = datasAulas[0];
-            const dataFim = datasAulas[datasAulas.length - 1];
-
-            const diasSemana = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
-
-            return (
-              <div className="space-y-6 py-2">
-                {/* Info Cards */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-muted/30 rounded-lg p-3 border">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Data Início</p>
-                    <p className="text-sm font-semibold text-foreground">
-                      {dataInicio ? new Date(dataInicio + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
-                    </p>
+              return (
+                <div className="space-y-8">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 dark:bg-slate-900 border rounded-2xl p-5 transition-all hover:border-blue-200 dark:hover:border-blue-900 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Início</span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {aulas[0]?.data_aula ? new Date(aulas[0].data_aula + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-900 border rounded-2xl p-5 transition-all hover:border-indigo-200 dark:hover:border-indigo-900 shadow-sm">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600">
+                          <CheckCircle2 className="w-4 h-4" />
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Término</span>
+                      </div>
+                      <p className="text-lg font-bold">
+                        {aulas[aulas.length-1]?.data_aula ? new Date(aulas[aulas.length-1].data_aula + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="bg-muted/30 rounded-lg p-3 border">
-                    <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Data Fim</p>
-                    <p className="text-sm font-semibold text-foreground">
-                      {dataFim ? new Date(dataFim + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : 'Não definida'}
-                    </p>
-                  </div>
-                </div>
 
-                {/* Aula Calendar List */}
-                <div>
-                  <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Cronograma de Aulas ({aulas.length})
-                  </h4>
-                  {aulas.length > 0 ? (
-                    <div className="space-y-2">
-                      {aulas.map((aula: any, i: number) => {
-                        const dataObj = aula.data_aula ? new Date(aula.data_aula + 'T12:00:00') : null;
-                        const diaSemana = dataObj ? diasSemana[dataObj.getDay()] : '';
-                        const dataFormatada = dataObj ? dataObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Sem data';
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground/60 flex items-center gap-2 px-2">
+                        <Clock className="w-3.5 h-3.5" />
+                        Cronograma de Aulas
+                    </h4>
+                    {aulas.length > 0 ? (
+                      <div className="grid gap-3">
+                        {aulas.map((aula: any, i: number) => {
+                          const dataObj = aula.data_aula ? new Date(aula.data_aula + 'T12:00:00') : null;
+                          const dataFormatada = dataObj ? dataObj.toLocaleDateString('pt-BR') : 'Sem data';
 
-                        return (
-                          <div key={aula.id_parte || i} className="flex items-center gap-3 bg-background border rounded-lg p-3 hover:bg-muted/20 transition-colors">
-                            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">
-                              {i + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-foreground">Aula {toRoman(i + 1)}</span>
-                                {diaSemana && (
-                                  <Badge variant="outline" className="text-[9px] font-normal">{diaSemana}</Badge>
-                                )}
+                          return (
+                            <div key={aula.id_parte || i} className="group flex items-center gap-4 bg-background border rounded-2xl p-4 transition-all hover:shadow-md hover:border-blue-100 dark:hover:border-blue-900">
+                              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-sm font-black shrink-0 transition-colors group-hover:bg-blue-600 group-hover:text-white">
+                                {i + 1}
                               </div>
-                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  {dataFormatada}
-                                </span>
-                                {aula.hora_inicio && (
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-3 h-3" />
-                                    {aula.hora_inicio?.slice(0, 5)} — {aula.hora_fim?.slice(0, 5) || '??:??'}
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm font-bold text-foreground block">Aula {toRoman(i + 1)}</span>
+                                <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
+                                  <span className="flex items-center gap-1.5">
+                                    <Calendar className="w-3.5 h-3.5 opacity-60" />
+                                    {dataFormatada}
                                   </span>
-                                )}
+                                  {aula.hora_inicio && (
+                                    <span className="flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5 opacity-60" />
+                                      {aula.hora_inicio?.slice(0, 5)} — {aula.hora_fim?.slice(0, 5) || '??:??'}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 bg-muted/10 rounded-lg border border-dashed text-sm text-muted-foreground italic">
-                      Nenhuma aula cadastrada para este módulo.
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-sm text-muted-foreground italic">
+                        Nenhuma aula cadastrada para este módulo.
+                      </div>
+                    )}
+                  </div>
                 </div>
+              );
+            })()}
+          </div>
 
-                {/* Teste de Conhecimento Buttons */}
-                <div className="border-t pt-4 space-y-2">
+          <div className="p-8 bg-slate-50 dark:bg-slate-900/50 border-t flex flex-col gap-3">
+            {(() => {
+              const testData = selectedModule?.teste || selectedModule?.modulo?.teste;
+              const testInfo = Array.isArray(testData) ? testData[0] : testData;
+              return (
+                <div className="flex flex-col gap-3">
                   <Button
-                    className="w-full gap-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-md"
+                    className="w-full h-12 gap-2 text-base font-bold bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-xl shadow-violet-500/20 active:scale-[0.98] transition-all rounded-2xl"
                     onClick={() => handleOpenTesteEditor(selectedModule)}
                   >
-                    <ClipboardList className="w-4 h-4" />
+                    <ClipboardList className="w-5 h-5" />
                     Editar Teste de Conhecimento
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-                    onClick={async () => {
-                      try {
-                        const headers = await getAuthHeader();
-                        const res = await fetch(
-                          `https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_modulo=${selectedModule.id_modulo}`,
-                          { headers }
-                        );
-                        if (res.ok) {
-                          const data = await res.json();
-                          if (data?.id_teste) {
-                            const link = `${window.location.origin}/teste/${data.id_teste}`;
-                            await navigator.clipboard.writeText(link);
-                            toast.success("Link copiado para a área de transferência!");
-                          } else {
-                            toast.error("Crie um teste primeiro antes de gerar o link.");
-                          }
-                        }
-                      } catch {
-                        toast.error("Erro ao gerar link do teste.");
-                      }
-                    }}
-                  >
-                    <Copy className="w-4 h-4" />
-                    Copiar Link do Teste
-                  </Button>
+                  
+                  {testInfo && (
+                    <Button
+                      variant="outline"
+                      className="w-full h-11 gap-2 text-sm font-bold border-2 border-violet-100 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-900 rounded-xl transition-all"
+                      onClick={() => {
+                        const trainingId = selectedModuleTraining?.id_treinamento || selectedModuleTraining?.id;
+                        handleOpenTesteExtra(testInfo.id_teste, trainingId || "");
+                      }}
+                    >
+                      <Users className="w-5 h-5" />
+                      Gerenciar Alunos do Teste Extra
+                    </Button>
+                  )}
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
+            <div className="flex gap-3 mt-1">
+              <Button
+                variant="outline"
+                className="flex-1 h-11 gap-2 text-sm font-bold border-2 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-all"
+                onClick={async () => {
+                   try {
+                    const headers = await getAuthHeader();
+                    const res = await fetch(`https://wytbbtlxrhkvqvlwjivc.supabase.co/functions/v1/treinamentos-crud?view=teste&id_modulo=${selectedModule.id_modulo}`, { headers });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Teste não encontrado.");
+                    const url = `${window.location.origin}/teste/${data.id_teste}`;
+                    await navigator.clipboard.writeText(url);
+                    toast.success("Link do teste copiado!");
+                  } catch (err: any) { toast.error(err.message); }
+                }}
+              >
+                <Link2 className="w-4 h-4" />
+                Copiar Link
+              </Button>
+
+              <Button
+                variant="outline"
+                className="flex-1 h-11 gap-2 text-sm font-bold border-2"
+                onClick={() => setModuleDetailOpen(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
-
-      {/* ══════════ TEST EDITOR OVERLAY ══════════ */}
+{/* ══════════ TEST EDITOR OVERLAY ══════════ */}
       <Dialog open={testeEditorOpen} onOpenChange={setTesteEditorOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col" onPointerDownOutside={(e) => e.preventDefault()}>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-violet-500" />
-              Teste de Conhecimento
-              {selectedModule && (
-                <Badge variant="outline" className="ml-2 font-normal">
-                  {moduloLabel((selectedModule.ordem ?? 1) - 1, selectedModule.modulo?.nome || selectedModule.nome)}
-                </Badge>
-              )}
-              {/* Status indicator */}
+          <DialogHeader className="border-b pb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="w-6 h-6 text-violet-500" />
+                  <DialogTitle className="text-2xl font-black tracking-tight">
+                    Teste de Conhecimento
+                  </DialogTitle>
+                </div>
+                {selectedModule && (
+                  <Badge variant="secondary" className="font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none px-2 py-0.5">
+                    {moduloLabel((selectedModule.ordem ?? 1) - 1, selectedModule.modulo?.nome || selectedModule.nome)}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Status and Controls Row */}
               {testeData && (
-                <div className="ml-auto flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${testeData.ativo !== false ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30 animate-pulse' : 'bg-red-500 shadow-lg shadow-red-500/30'}`} />
-                  <span className={`text-xs font-medium ${testeData.ativo !== false ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {testeData.ativo !== false ? 'No ar' : 'Inativo'}
-                  </span>
-                  {testeData.ativo !== false ? (
+                <div className="flex flex-wrap items-center gap-2 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-2xl border shadow-inner">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-background border rounded-xl shadow-sm">
+                    <div className={`w-3 h-3 rounded-full ${testeData.ativo !== false ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)] animate-pulse' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]'}`} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      {testeData.ativo !== false ? 'No ar' : 'Inativo'}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {testeData.ativo !== false ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 px-4 text-xs font-bold text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl"
+                        onClick={() => { setMotivoInatividade(""); setConfirmInativarOpen(true); }}
+                      >
+                        <PowerOff className="w-3.5 h-3.5 mr-1.5" />
+                        Inativar
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-10 px-4 text-xs font-bold text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-xl"
+                        onClick={() => setConfirmReativarOpen(true)}
+                      >
+                        <Power className="w-3.5 h-3.5 mr-1.5" />
+                        Reativar
+                      </Button>
+                    )}
+
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      className="h-6 px-2 text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                      onClick={() => { setMotivoInatividade(""); setConfirmInativarOpen(true); }}
-                    >Inativar</Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[10px] text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                      onClick={() => setConfirmReativarOpen(true)}
-                    >Reativar</Button>
-                  )}
-                  {/* Teste Extra Button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 gap-1.5 text-[10px] ml-1 bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border-violet-200 dark:border-violet-800"
-                    onClick={() => handleOpenTesteExtra(testeData.id_teste, selectedModuleTraining.id_treinamento)}
-                  >
-                    <UserCheck className="w-3 h-3" />
-                    Teste Extra
-                  </Button>
+                      className="h-10 px-4 gap-2 text-xs font-bold bg-background border-2 hover:bg-violet-50 dark:hover:bg-violet-950/20 text-violet-600 dark:text-violet-400 border-violet-100 dark:border-violet-900 rounded-xl shadow-sm"
+                      onClick={() => {
+                        const trainingId = selectedModuleTraining?.id || selectedModuleTraining?.id_treinamento;
+                        if (testeData?.id_teste && trainingId) {
+                          handleOpenTesteExtra(testeData.id_teste, trainingId);
+                        } else {
+                          toast.error("Erro interno: ID do treinamento não encontrado.");
+                          console.log("Teste Extra Error Debug:", { testeId: testeData?.id_teste, training: selectedModuleTraining });
+                        }
+                      }}
+                    >
+                      <UserCheck className="w-4 h-4" />
+                      Teste Extra
+                    </Button>
+                  </div>
                 </div>
               )}
-
-            </DialogTitle>
-            <DialogDescription>
-              Crie perguntas objetivas com alternativas. A nota total é calculada automaticamente.
+            </div>
+            <DialogDescription className="text-sm text-muted-foreground mt-4 font-medium leading-relaxed">
+              Configure as perguntas e o cronograma de disponibilidade deste teste. As notas são calculadas em tempo real.
             </DialogDescription>
           </DialogHeader>
 
@@ -3060,12 +3169,13 @@ export function Treinamentos() {
             />
 
             {isLoadingTesteExtra ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent animate-spin rounded-full" />
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <div className="w-8 h-8 border-3 border-violet-500 border-t-transparent animate-spin rounded-full" />
+                <p className="text-xs text-muted-foreground animate-pulse">Carregando matriculados...</p>
               </div>
             ) : (
-              <ScrollArea className="flex-1 pr-3">
-                <div className="space-y-2">
+              <ScrollArea className="flex-grow min-h-[300px] max-h-[50vh] pr-3 -mr-3">
+                <div className="space-y-2 pr-2 pb-4">
                   {filteredExtraAlunos.length > 0 ? (
                     filteredExtraAlunos.map((aluno) => (
                       <div 
@@ -3107,7 +3217,20 @@ export function Treinamentos() {
             )}
           </div>
 
-          <DialogFooter className="border-t pt-4">
+          <DialogFooter className="border-t pt-4 flex flex-col sm:flex-row gap-2">
+            <Button 
+              variant="outline" 
+              className="w-full sm:flex-1 gap-2"
+              onClick={() => {
+                if (!currentExtraTesteId) return;
+                const url = `${window.location.origin}/teste/${currentExtraTesteId}?extra=true`;
+                navigator.clipboard.writeText(url);
+                toast.success("Link especial de Teste Extra copiado!");
+              }}
+            >
+              <Copy className="w-4 h-4" />
+              Copiar Link Especial
+            </Button>
             <Button className="w-full sm:w-auto" onClick={() => setIsTesteExtraOpen(false)}>
               Fechar
             </Button>

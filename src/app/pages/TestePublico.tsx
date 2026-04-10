@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
+import { AlertCircle, Clock, CheckCircle2, Search, ArrowRight, Lock, Calendar } from "lucide-react";
 
 const SUPABASE_URL = "https://wytbbtlxrhkvqvlwjivc.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5dGJidGx4cmhrdnF2bHdqaXZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTYwMTIsImV4cCI6MjA4ODM5MjAxMn0.7iFjBVva_7nsNlvmfZ_8ddQuTmvCrCx9NTP1sKRzRB0";
@@ -35,15 +36,16 @@ function toRoman(n: number): string {
   return result;
 }
 
-function getPenalidadeLabel(tentativa: number, isExtra: boolean): { texto: string; cor: string } | null {
-  if (isExtra) return { texto: "Teste Extra: serão subtraídos 3 pontos da nota integral", cor: "amber" };
+function getAjustePontuacaoLabel(tentativa: number): { texto: string; cor: string } | null {
   if (tentativa === 2) return { texto: "2ª tentativa: será subtraído 1 ponto da nota integral", cor: "amber" };
-  if (tentativa >= 3) return { texto: "3ª tentativa: serão subtraídos 3 pontos da nota integral", cor: "red" };
+  if (tentativa >= 3) return { texto: "3ª tentativa+: serão subtraídos 3 pontos da nota integral", cor: "red" };
   return null;
 }
 
 function TestePublicoContent() {
   const { id_teste } = useParams<{ id_teste: string }>();
+  const { setTheme } = useTheme();
+  const isExtraParam = new URLSearchParams(window.location.search).get("extra") === "true";
 
   const [teste, setTeste] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -54,7 +56,6 @@ function TestePublicoContent() {
   const [alunoValidado, setAlunoValidado] = useState<any>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
 
-  // Info de tentativas (vinda do validar-cpf)
   const [tentativasInfo, setTentativasInfo] = useState<any>(null);
 
   const [respostas, setRespostas] = useState<Record<string, string>>({});
@@ -71,7 +72,6 @@ function TestePublicoContent() {
     return newArr;
   };
 
-
   const shufflePerguntas = (perguntasRaw: any[]) => {
     if (!perguntasRaw) return [];
     return perguntasRaw.map((p: any) => ({
@@ -81,6 +81,7 @@ function TestePublicoContent() {
   };
 
   useEffect(() => {
+    setTheme("light");
     if (!id_teste) return;
     (async () => {
       setIsLoading(true);
@@ -90,7 +91,6 @@ function TestePublicoContent() {
         if (!res.ok) throw new Error(data.error || "Erro ao carregar teste");
         setTeste(data);
         
-        // Randomizar alternativas inicialmente
         if (data.perguntas) {
           setPerguntasShuffled(shufflePerguntas(data.perguntas));
         }
@@ -100,9 +100,7 @@ function TestePublicoContent() {
         setIsLoading(false);
       }
     })();
-  }, [id_teste]);
-
-
+  }, [id_teste, setTheme]);
 
   const handleValidarCPF = async () => {
     const cpfLimpo = cpf.replace(/\D/g, "");
@@ -115,7 +113,7 @@ function TestePublicoContent() {
     try {
       const res = await apiFetch(`?action=validar-cpf`, {
         method: "POST",
-        body: JSON.stringify({ cpf: cpfLimpo, id_teste }),
+        body: JSON.stringify({ cpf: cpfLimpo, id_teste, extra: isExtraParam }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -139,10 +137,9 @@ function TestePublicoContent() {
   };
 
   const perguntas = perguntasShuffled || [];
-
   const todasRespondidas = perguntas.length > 0 && perguntas.every((p: any) => respostas[p.id_pergunta]);
-  const bloqueado = tentativasInfo?.bloqueado;
-  const podeEnviar = alunoValidado && todasRespondidas && !bloqueado;
+  
+  const podeEnviar = alunoValidado && todasRespondidas;
 
   const handleEnviar = async () => {
     if (!podeEnviar) return;
@@ -154,7 +151,10 @@ function TestePublicoContent() {
       const res = await apiFetch(`?action=enviar`, {
         method: "POST",
         body: JSON.stringify({
-          id_teste, id_aluno: alunoValidado.id_aluno, respostas: respostasArray,
+          id_teste, 
+          id_aluno: alunoValidado.id_aluno, 
+          respostas: respostasArray,
+          extra: isExtraParam 
         }),
       });
       const data = await res.json();
@@ -170,136 +170,167 @@ function TestePublicoContent() {
   const handleNovaTentativa = () => {
     setRespostas({});
     setResultado(null);
-    // Resetar validação mas MANTER o CPF (como pedido pelo usuário)
     setAlunoValidado(null);
     setTentativasInfo(null);
-    // setCpf(""); // Comentado para decorar o CPF anterior
-    
-    // Gerar nova sequência aleatória de alternativas para a nova tentativa
     if (teste?.perguntas) {
       setPerguntasShuffled(shufflePerguntas(teste.perguntas));
     }
-    
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-
-
-  const nomeModulo = teste?.modulo
-    ? `Módulo ${toRoman(teste.modulo.ordem || 1)}${teste.modulo.nome ? ` — ${teste.modulo.nome}` : ""}`
-    : "";
-  const nomeTreinamento = teste?.modulo?.treinamento?.nome || "";
-
-  // Info de penalidade para exibição
-  const proximaTentativa = tentativasInfo?.proxima_tentativa || 1;
-  const isTesteExtra = tentativasInfo?.is_teste_extra || false;
-  const penalidadeInfo = tentativasInfo ? getPenalidadeLabel(proximaTentativa, isTesteExtra) : null;
-
-  // ─── LOADING ──────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-violet-50 dark:from-slate-950 dark:to-violet-950">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-violet-50">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-500 dark:text-slate-400 animate-pulse">Carregando teste...</p>
+          <p className="text-slate-500 animate-pulse">Carregando teste...</p>
         </div>
       </div>
     );
   }
 
-  // ─── ERROR ──────────────────────────────
   if (loadError || !teste) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-red-50 dark:from-slate-950 dark:to-red-950">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md text-center border">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-red-50 p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center border">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
             <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
           </div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste não encontrado</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm">{loadError || "O link pode estar incorreto ou o teste foi removido."}</p>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Teste não encontrado</h2>
+          <p className="text-slate-500 text-sm">{loadError || "O link pode estar incorreto ou o teste foi removido."}</p>
         </div>
       </div>
     );
   }
 
-  // ─── INATIVO ──────────────────────────────
-  if (teste.ativo === false) {
+  const nomeModulo = teste.modulo
+    ? `Módulo ${toRoman(teste.modulo.ordem || 1)}${teste.modulo.nome ? ` — ${teste.modulo.nome}` : ""}`
+    : "";
+  const nomeTreinamento = teste.modulo?.treinamento?.nome || "";
+
+  const isInactive = teste.ativo === false;
+  const isExpired = teste.data_fechamento && new Date() > new Date(teste.data_fechamento);
+  const isNotOpenYet = teste.nao_aberto;
+  const showExpirationLock = (isInactive || isExpired) && !isExtraParam;
+
+  if (showExpirationLock) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-amber-50 dark:from-slate-950 dark:to-amber-950 p-4">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md text-center border">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-            <svg className="w-8 h-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4 font-sans antialiased text-slate-900 transition-colors duration-500">
+        <div className="max-w-md w-full bg-white rounded-[2rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] border border-slate-200/60 p-10 text-center space-y-8 relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400 group-hover:h-2 transition-all duration-300" />
+          
+          <div className="relative">
+            <div className="w-24 h-24 bg-amber-50 rounded-3xl flex items-center justify-center mx-auto text-amber-500 transform -rotate-3 group-hover:rotate-0 transition-transform duration-500">
+              <Clock className="w-12 h-12" />
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste Indisponível</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-3">
-            {teste.motivo_inatividade || "Este teste foi desativado e não está aceitando respostas no momento."}
-          </p>
-          <p className="text-xs text-slate-400">Entre em contato com o administrador do treinamento.</p>
+
+          <div className="space-y-3">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Acesso Expirado</h1>
+            <p className="text-slate-500 text-base leading-relaxed">
+              {isInactive ? (teste.motivo_inatividade || "Este teste foi temporariamente desativado pelo administrador.") : "O prazo limite para a realização desta atividade já se encerrou."}
+            </p>
+          </div>
+
+          <div className="p-6 bg-slate-50/80 rounded-2xl border border-slate-100 text-left space-y-3">
+            <div className="flex items-center gap-2 text-amber-600">
+              <Lock className="w-4 h-4" />
+              <span className="text-xs font-bold uppercase tracking-wider">Aviso Importante</span>
+            </div>
+            <p className="text-[13px] text-slate-600 leading-relaxed">
+              Caso você possua uma permissão de <strong>Teste Extra</strong> concedida pelo seu instrutor, utilize o link especial que foi enviado diretamente para você. Links convencionais não permitem o acesso após o prazo.
+            </p>
+          </div>
+
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full h-14 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
+          >
+            Tentar novamente
+          </button>
         </div>
       </div>
     );
   }
 
-  // ─── NÃO ABERTO AINDA ──────────────────────────────
-  if (teste.nao_aberto) {
+  if (!isExtraParam && isNotOpenYet) {
     const dataAbertura = teste.data_abertura ? new Date(teste.data_abertura) : null;
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-blue-950 p-4">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-8 max-w-md text-center border">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-            <svg className="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4 font-sans antialiased text-slate-900 transition-colors duration-500">
+        <div className="max-w-md w-full bg-white rounded-[2rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] border border-slate-200/60 p-10 text-center space-y-8 relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-400 via-indigo-500 to-blue-400 group-hover:h-2 transition-all duration-300" />
+          
+          <div className="relative">
+            <div className="w-24 h-24 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto text-blue-500 transform -rotate-3 group-hover:rotate-0 transition-transform duration-500">
+              <Calendar className="w-12 h-12" />
+            </div>
           </div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white mb-2">Teste Ainda Não Disponível</h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">Este teste será liberado em breve.</p>
+
+          <div className="space-y-3">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Teste em Breve</h1>
+            <p className="text-slate-500 text-base leading-relaxed">
+              Esta atividade ainda não está disponível para realização.
+            </p>
+          </div>
+
           {dataAbertura && (
-            <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-              <p className="text-xs text-blue-500 font-bold uppercase tracking-wider mb-1">Abertura prevista</p>
-              <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+            <div className="p-6 bg-blue-50/80 rounded-2xl border border-blue-100 text-center space-y-1">
+              <p className="text-xs text-blue-500 font-bold uppercase tracking-wider">Abertura prevista</p>
+              <p className="text-sm font-semibold text-blue-700">
                 {dataAbertura.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
                 {' às '}
                 {dataAbertura.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
           )}
+
+          <button 
+            onClick={() => window.location.reload()}
+            className="w-full h-14 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-200"
+          >
+            Verificar novamente
+          </button>
         </div>
       </div>
     );
   }
 
-  // ─── RESULTADO OVERLAY ──────────────────────────────
   if (resultado) {
-    const percentual = resultado.percentual || 0;
-    const isAprovado = percentual >= 70;
+    const isAprovado = resultado.aprovado;
+    const percentual = Math.round((resultado.nota_obtida / resultado.nota_maxima) * 100);
 
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-violet-50 dark:from-slate-950 dark:to-violet-950 p-4">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 max-w-md w-full text-center border relative overflow-hidden">
-          <div className={`absolute inset-0 opacity-5 ${isAprovado ? "bg-emerald-500" : "bg-amber-500"}`} />
-
-          <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
-            isAprovado ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
-          }`}>
-            {isAprovado ? (
-              <svg className="w-10 h-10 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            ) : (
-              <svg className="w-10 h-10 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            )}
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] p-4 font-sans antialiased text-slate-900">
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] border border-slate-200/60 p-10 text-center space-y-8 relative overflow-hidden group">
+          <div className={`absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${
+            isAprovado ? "from-emerald-400 via-teal-500 to-emerald-400" : "from-amber-400 via-orange-500 to-amber-400"
+          }`} />
+          
+          <div className="relative">
+            <div className={`w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto transform rotate-3 transition-transform duration-500 hover:rotate-0 ${
+              isAprovado ? "bg-emerald-50 text-emerald-500" : "bg-amber-50 text-amber-500"
+            }`}>
+              {isAprovado ? <CheckCircle2 className="w-12 h-12" /> : <AlertCircle className="w-12 h-12" />}
+            </div>
           </div>
 
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-1">
-            {isAprovado ? "Parabéns!" : "Teste Concluído"}
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-            {alunoValidado?.nome}, aqui está o seu resultado:
-          </p>
+          <div className="space-y-2">
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+              {isAprovado ? "Excelente Trabalho!" : "Resultado do Teste"}
+            </h1>
+            <p className="text-slate-500 text-base leading-relaxed">
+              {isAprovado 
+                ? "Você atingiu a pontuação necessária para aprovação neste módulo." 
+                : "Sua pontuação ficou abaixo do mínimo exigido. Revise o conteúdo e tente novamente."}
+            </p>
+          </div>
 
-          {/* Penalidade aplicada */}
-          {resultado.penalidade > 0 && (
-            <div className="mb-4 flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg p-3 border border-amber-200 dark:border-amber-800 text-left">
-              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          {resultado.ajuste_pontuacao > 0 && (
+            <div className="flex items-start gap-3 bg-amber-50/50 rounded-2xl p-4 border border-amber-100/50 text-left text-amber-700 text-[13px] leading-relaxed">
+              <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
               <div>
-                <p className="font-semibold">Penalidade aplicada: −{resultado.penalidade} ponto(s)</p>
-                <p className="text-xs mt-0.5">
+                <p className="font-bold">Ajuste de Pontuação: −{resultado.ajuste_pontuacao} ponto(s)</p>
+                <p className="opacity-80">
                   Nota integral: {resultado.nota_integral} → Nota final: {resultado.nota_obtida}
                   {resultado.is_teste_extra && " (Teste Extra)"}
                 </p>
@@ -307,135 +338,131 @@ function TestePublicoContent() {
             </div>
           )}
 
-          {/* Note circle */}
-          <div className={`w-32 h-32 mx-auto rounded-full border-4 flex flex-col items-center justify-center mb-6 ${
-            isAprovado ? "border-emerald-400 text-emerald-600" : "border-amber-400 text-amber-600"
-          }`}>
-            <span className="text-3xl font-bold">{resultado.nota_obtida}</span>
-            <span className="text-xs opacity-70">de {resultado.nota_maxima}</span>
+          <div className="relative py-4">
+             <div className="flex items-center justify-center gap-6">
+                <div className="text-center">
+                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Nota Final</p>
+                   <div className={`text-4xl font-black ${isAprovado ? "text-emerald-600" : "text-amber-600"}`}>
+                      {resultado.nota_obtida}
+                      <span className="text-sm font-medium text-slate-300 ml-1">/{resultado.nota_maxima}</span>
+                   </div>
+                </div>
+                <div className="w-[1px] h-10 bg-slate-100" />
+                <div className="text-center">
+                   <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-1">Aproveitamento</p>
+                   <div className={`text-4xl font-black ${isAprovado ? "text-emerald-600" : "text-amber-600"}`}>
+                      {percentual}%
+                   </div>
+                </div>
+             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-6 text-sm">
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Aproveitamento</p>
-              <p className={`text-lg font-bold ${isAprovado ? "text-emerald-600" : "text-amber-600"}`}>
-                {percentual}%
-              </p>
-            </div>
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Tentativa</p>
-              <p className="text-lg font-bold text-violet-600">{resultado.tentativas}ª</p>
+          <div className="grid grid-cols-1 gap-3">
+            <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-100 text-center">
+              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mb-0.5">Tentativa realizada</p>
+              <p className="text-lg font-extrabold text-indigo-600">{resultado.tentativas}ª tentativa</p>
             </div>
           </div>
 
-          {/* Aviso sobre próxima tentativa */}
-          {resultado.tentativas < 3 && (
-            <div className="mb-4 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg p-2.5 border">
-              {resultado.tentativas === 1
-                ? "Na próxima tentativa será subtraído 1 ponto da nota integral."
-                : "Na próxima tentativa serão subtraídos 3 pontos da nota integral."}
-            </div>
-          )}
-          {resultado.tentativas >= 3 && !resultado.is_teste_extra && (
-            <div className="mb-4 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 rounded-lg p-2.5 border border-red-200 dark:border-red-800">
-              Você atingiu o número máximo de tentativas para este teste.
-            </div>
-          )}
-
-          {resultado.tentativas < 3 ? (
-            <button
-              onClick={handleNovaTentativa}
-              className="w-full py-3 px-4 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors shadow-lg shadow-violet-500/20"
-            >
-              Fazer Nova Tentativa
-            </button>
-          ) : (
-            <button
-              disabled
-              className="w-full py-3 px-4 rounded-xl bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-semibold cursor-not-allowed"
-            >
-              Tentativas Esgotadas
-            </button>
-          )}
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full h-14 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-xl shadow-slate-200"
+          >
+            Fazer Nova Tentativa
+            <ArrowRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
     );
   }
 
-  // ─── MAIN FORM ──────────────────────────────
+  const proximaTentativa = tentativasInfo?.proxima_tentativa || 1;
+  const ajusteInfo = tentativasInfo ? getAjustePontuacaoLabel(proximaTentativa) : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-violet-50 dark:from-slate-950 dark:to-violet-950">
-      {/* Header */}
-      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border-b sticky top-0 z-20">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+    <div className="min-h-screen bg-[#F8FAFC] font-sans antialiased text-slate-900 pb-24">
+      <header className="bg-white/90 backdrop-blur-md border-b border-slate-200/60 sticky top-0 z-20">
+        <div className="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-700 flex items-center justify-center shadow-lg shadow-indigo-100 border border-indigo-200/20">
+              <CheckCircle2 className="w-6 h-6 text-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold text-slate-800 dark:text-white leading-tight">
-                {teste.titulo || "Teste de Conhecimento"}
-                {isTesteExtra && (
-                  <span className="ml-2 text-xs bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
-                    Teste Extra
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <h1 className="text-lg font-extrabold tracking-tight text-slate-900 truncate">
+                  {teste.titulo || "Teste de Conhecimento"}
+                </h1>
+                {isExtraParam && (
+                  <span className="shrink-0 bg-amber-100 text-amber-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-full tracking-wider border border-amber-200">
+                    Extra
                   </span>
                 )}
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {nomeTreinamento} {nomeModulo && `• ${nomeModulo}`}
+              </div>
+              <p className="text-[13px] text-slate-500 font-medium truncate flex items-center gap-1.5">
+                <span className="text-indigo-600 font-bold">{nomeTreinamento}</span>
+                {nomeModulo && <><span className="text-slate-300">•</span> {nomeModulo}</>}
               </p>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        {/* ──── SEÇÃO CPF ──── */}
-        <section className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6">
-          <h2 className="text-base font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-2">
-            <svg className="w-5 h-5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-            Identificação do Aluno
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-            Digite seu CPF para confirmar sua matrícula neste treinamento.
-          </p>
+      <main className="max-w-3xl mx-auto px-6 py-10 space-y-10">
+        {/* IDENTIFICAÇÃO */}
+        <section className="bg-white rounded-[2.5rem] shadow-[0_20px_40px_-12px_rgba(0,0,0,0.04)] border border-slate-200/60 p-8 space-y-6 relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-5">
+             <Search className="w-24 h-24" />
+          </div>
+          
+          <div className="space-y-2 relative">
+            <h2 className="text-xl font-extrabold tracking-tight text-slate-900 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-500 flex items-center justify-center">
+                 <Lock className="w-4 h-4" />
+              </div>
+              Identificação do Aluno
+            </h2>
+            <p className="text-sm text-slate-500 leading-relaxed max-w-sm">
+              Para acessar as questões, informe seu CPF cadastrado no sistema para validarmos sua matrícula.
+            </p>
+          </div>
 
-          <div className="flex gap-3">
-            <input
-              type="text"
-              placeholder="000.000.000-00"
-              value={cpf}
-              onChange={(e) => {
-                setCpf(formatCPF(e.target.value));
-                setCpfError(null);
-                if (alunoValidado) { setAlunoValidado(null); setTentativasInfo(null); }
-              }}
-              disabled={!!alunoValidado}
-              maxLength={14}
-              className={`flex-1 h-12 px-4 rounded-xl border-2 text-sm font-mono tracking-wider transition-all outline-none
-                ${cpfError
-                  ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20 focus:border-red-400"
-                  : alunoValidado
-                    ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/20"
-                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-violet-400"
-                }
-                text-slate-800 dark:text-white
-                disabled:opacity-60 disabled:cursor-not-allowed`}
-            />
+          <div className="flex gap-4">
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                placeholder="000.000.000-00"
+                value={cpf}
+                onChange={(e) => {
+                  setCpf(formatCPF(e.target.value));
+                  setCpfError(null);
+                  if (alunoValidado) { setAlunoValidado(null); setTentativasInfo(null); }
+                }}
+                disabled={!!alunoValidado}
+                maxLength={14}
+                className={`w-full h-14 px-5 rounded-2xl border-2 text-base font-bold tracking-widest transition-all outline-none
+                  ${cpfError
+                    ? "border-red-100 bg-red-50 text-red-600 focus:border-red-300"
+                    : alunoValidado
+                      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                      : "border-slate-100 bg-slate-50 focus:border-indigo-400 focus:bg-white text-slate-900"
+                  }
+                  disabled:opacity-50 disabled:cursor-not-allowed`}
+              />
+            </div>
             {!alunoValidado ? (
               <button
                 onClick={handleValidarCPF}
                 disabled={isValidating || cpf.replace(/\D/g, "").length < 11}
-                className="h-12 px-6 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-semibold text-sm transition-colors shrink-0 disabled:cursor-not-allowed"
+                className="h-14 px-8 rounded-2xl bg-slate-900 text-white font-bold text-sm tracking-wide transition-all active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-400 hover:bg-slate-800"
               >
                 {isValidating ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : "Validar"}
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : "Validar CPF"}
               </button>
             ) : (
               <button
                 onClick={() => { setAlunoValidado(null); setCpf(""); setRespostas({}); setTentativasInfo(null); }}
-                className="h-12 px-4 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-slate-700 text-sm transition-colors shrink-0"
+                className="h-14 px-6 rounded-2xl bg-white border-2 border-slate-100 text-slate-400 font-bold text-sm hover:border-slate-200 hover:text-slate-600 transition-all"
               >
                 Alterar
               </button>
@@ -443,151 +470,134 @@ function TestePublicoContent() {
           </div>
 
           {cpfError && (
-            <div className="mt-3 flex items-start gap-2 text-red-600 dark:text-red-400 text-sm bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800">
-              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              {cpfError}
+            <div className="flex items-start gap-3 text-red-600 text-sm bg-red-50/50 rounded-xl p-4 border border-red-100/50 animate-in fade-in slide-in-from-top-2">
+              <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+              <p className="font-medium leading-relaxed">{cpfError}</p>
             </div>
           )}
 
           {alunoValidado && (
-            <div className="mt-3 flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
-              <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                {alunoValidado.nome?.charAt(0)?.toUpperCase() || "?"}
+            <div className="flex items-center gap-4 bg-emerald-50/50 rounded-[1.5rem] p-5 border border-emerald-100/50 animate-in fade-in slide-in-from-left-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-100 flex items-center justify-center text-white font-black text-lg">
+                {alunoValidado.nome?.charAt(0)?.toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-800 dark:text-white text-sm truncate">{alunoValidado.nome}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                  {alunoValidado.cargo || ""}{alunoValidado.cargo && alunoValidado.empresa ? " • " : ""}{alunoValidado.empresa || ""}
+                <p className="font-extrabold text-slate-900 text-base truncate">{alunoValidado.nome}</p>
+                <p className="text-[13px] text-slate-500 font-medium truncate opacity-80 uppercase tracking-wide">
+                  {alunoValidado.cargo || "Estudante"}{alunoValidado.empresa?.nome ? ` • ${alunoValidado.empresa.nome}` : ""}
                 </p>
               </div>
-              <svg className="w-6 h-6 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-          )}
-
-          {/* Bloqueado por tentativas */}
-          {bloqueado && (
-            <div className="mt-3 bg-red-50 dark:bg-red-950/30 rounded-xl p-5 border border-red-200 dark:border-red-800 text-center">
-              <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+              <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-white">
+                 <CheckCircle2 className="w-5 h-5" />
               </div>
-              <p className="font-bold text-red-700 dark:text-red-400 text-sm mb-1">Número Máximo de Tentativas Excedido</p>
-              <p className="text-xs text-red-600/70 dark:text-red-400/70">
-                Você já realizou {tentativasInfo?.tentativas_anteriores || 3} tentativas neste teste. Entre em contato com o administrador para solicitar um teste extra.
-              </p>
             </div>
           )}
 
-          {/* Aviso de penalidade para a próxima tentativa */}
-          {alunoValidado && !bloqueado && penalidadeInfo && (
-            <div className={`mt-3 flex items-start gap-2 text-sm rounded-lg p-3 border ${
-              penalidadeInfo.cor === "red"
-                ? "text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
-                : "text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
+          {alunoValidado && ajusteInfo && (
+            <div className={`flex items-start gap-3 text-[13px] rounded-2xl p-4 border ${
+              ajusteInfo.cor === "red"
+                ? "text-red-700 bg-red-50/30 border-red-100"
+                : "text-amber-700 bg-amber-50/30 border-amber-100"
             }`}>
-              <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              <Clock className="w-5 h-5 mt-0.5 shrink-0" />
               <div>
-                <p className="font-semibold">{penalidadeInfo.texto}</p>
-                <p className="text-xs opacity-80 mt-0.5">
-                  Esta é a sua {proximaTentativa}ª tentativa.
-                  {proximaTentativa === 3 && !isTesteExtra && " Esta é sua última tentativa regular."}
-                </p>
+                <p className="font-black uppercase tracking-wider text-[11px] mb-0.5">{ajusteInfo.texto}</p>
+                <p className="font-medium opacity-80">Você está em sua {proximaTentativa}ª tentativa oficial para este teste.</p>
               </div>
             </div>
           )}
         </section>
 
-        {/* ──── SEÇÃO PERGUNTAS ──── */}
-        {!bloqueado && perguntas.map((pergunta: any, pIdx: number) => (
-          <section
-            key={pergunta.id_pergunta}
-            className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6 transition-all ${
-              !alunoValidado ? "opacity-50 pointer-events-none" : ""
-            }`}
-          >
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-8 h-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400 text-sm font-bold shrink-0">
-                {pIdx + 1}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-slate-800 dark:text-white leading-relaxed">
-                  {pergunta.enunciado}
-                </p>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Valor: {pergunta.valor_nota} ponto(s)
-                </p>
-              </div>
+        {/* QUESTÕES */}
+        {alunoValidado && (
+          <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-slate-100" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Questionário</span>
+              <div className="h-px flex-1 bg-slate-100" />
             </div>
 
-            <div className="space-y-2 ml-11">
-              {(pergunta.alternativas || []).map((alt: any, aIdx: number) => {
-                const isSelected = respostas[pergunta.id_pergunta] === alt.id_alternativa;
-                return (
-                  <button
-                    key={alt.id_alternativa}
-                    type="button"
-                    onClick={() => handleSelectAlternativa(pergunta.id_pergunta, alt.id_alternativa)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left text-sm transition-all
-                      ${isSelected
-                        ? "border-violet-400 bg-violet-50 dark:bg-violet-950/30 dark:border-violet-600 shadow-sm"
-                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-slate-800"
-                      }`}
-                  >
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-                      isSelected ? "border-violet-500 bg-violet-500" : "border-slate-300 dark:border-slate-600"
-                    }`}>
-                      {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-white" />}
-                    </div>
-                    <span className={`flex-1 ${isSelected ? "text-violet-700 dark:text-violet-300 font-medium" : "text-slate-700 dark:text-slate-300"}`}>
-                      <span className="font-bold mr-1.5 text-slate-400">{String.fromCharCode(65 + aIdx)})</span>
-                      {alt.texto}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-
-        {/* ──── BARRA DE ENVIO ──── */}
-        {!bloqueado && (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border p-6 sticky bottom-4">
-            {/* Aviso de penalidade na barra de envio */}
-            {penalidadeInfo && (
-              <div className={`mb-3 text-xs rounded-lg px-3 py-2 border ${
-                penalidadeInfo.cor === "red"
-                  ? "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
-                  : "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800"
-              }`}>
-                ⚠ {penalidadeInfo.texto}
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-sm text-slate-500 dark:text-slate-400">
-                {!alunoValidado ? (
-                  <span className="text-amber-600 dark:text-amber-400 font-medium">⚠ Valide seu CPF para continuar</span>
-                ) : !todasRespondidas ? (
-                  <span>{Object.keys(respostas).length} de {perguntas.length} pergunta(s) respondida(s)</span>
-                ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Todas respondidas!</span>
-                )}
-              </div>
-              <button
-                onClick={handleEnviar}
-                disabled={!podeEnviar || isSubmitting}
-                className="h-12 px-8 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-700 dark:disabled:to-slate-600 text-white font-semibold text-sm transition-all shadow-lg shadow-violet-500/20 disabled:shadow-none disabled:cursor-not-allowed"
+            {perguntas.map((p: any, pIdx: number) => (
+              <div 
+                key={p.id_pergunta}
+                className="bg-white rounded-[2.5rem] p-8 shadow-[0_12px_24px_-8px_rgba(0,0,0,0.02)] border border-slate-200/50 group transition-all hover:shadow-[0_24px_48px_-12px_rgba(0,0,0,0.06)]"
               >
-                {isSubmitting ? (
-                  <span className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Enviando...
-                  </span>
-                ) : "Enviar Teste"}
-              </button>
+                <div className="space-y-8">
+                  <div className="flex items-start gap-5">
+                    <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-lg shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                      {pIdx + 1}
+                    </div>
+                    <p className="text-lg font-bold text-slate-800 leading-relaxed pt-1.5">
+                      {p.enunciado}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {p.alternativas?.map((alt: any) => (
+                      <button
+                        key={alt.id_alternativa}
+                        onClick={() => handleSelectAlternativa(p.id_pergunta, alt.id_alternativa)}
+                        className={`flex items-center gap-4 p-5 rounded-2xl text-left transition-all border-2 ${
+                          respostas[p.id_pergunta] === alt.id_alternativa
+                            ? "bg-indigo-50/30 border-indigo-500 shadow-md shadow-indigo-50"
+                            : "bg-slate-50/50 border-transparent hover:border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                          respostas[p.id_pergunta] === alt.id_alternativa
+                            ? "border-indigo-600 bg-indigo-600"
+                            : "border-slate-300"
+                        }`}>
+                          {respostas[p.id_pergunta] === alt.id_alternativa && (
+                            <div className="w-2.5 h-2.5 rounded-full bg-white shadow-sm" />
+                          )}
+                        </div>
+                        <span className={`text-base font-bold ${respostas[p.id_pergunta] === alt.id_alternativa ? "text-indigo-900" : "text-slate-600"}`}>
+                          {alt.texto}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <div className="bg-slate-900 rounded-[2.5rem] p-10 flex flex-col items-center gap-6 shadow-2xl shadow-slate-200">
+               <div className="text-center space-y-2">
+                  <h3 className="text-white text-xl font-black tracking-tight">Pronto para finalizar?</h3>
+                  <p className="text-slate-400 text-sm max-w-xs mx-auto">
+                    Certifique-se de que revisou todas as suas respostas. Esta ação não poderá ser desfeita.
+                  </p>
+               </div>
+               
+               <button
+                  onClick={handleEnviar}
+                  disabled={!podeEnviar || isSubmitting}
+                  className={`w-full max-w-xs h-16 rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl flex items-center justify-center gap-3 ${
+                    podeEnviar && !isSubmitting
+                      ? "bg-white text-slate-900 hover:scale-[1.02] active:scale-[0.98]"
+                      : "bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700"
+                  }`}
+                >
+                  {isSubmitting ? (
+                    <div className="w-6 h-6 border-3 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      Enviar Teste Agora
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+
+                {!todasRespondidas && (
+                  <div className="flex items-center gap-2 text-amber-500/80 text-[10px] font-black uppercase tracking-widest">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    Responda todas as questões primeiro
+                  </div>
+                )}
             </div>
           </div>
         )}
-
-        <div className="h-8" />
       </main>
     </div>
   );
@@ -595,7 +605,7 @@ function TestePublicoContent() {
 
 export function TestePublico() {
   return (
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false}>
       <TestePublicoContent />
     </ThemeProvider>
   );
