@@ -277,7 +277,7 @@ export function Empresas() {
           (data.nome || data.razao_social || "")
       ).toString();
 
-      rawNome = rawNome.replace(/^\d+[\s.-]*/, "").trim().toUpperCase();
+      rawNome = rawNome.trim().toUpperCase();
 
       // ReceitaWS traz o logradouro completo no campo 'logradouro'
       // No entanto, BrasilAPI e outros trazem separado em fields como 'descricao_tipo_de_logradouro'
