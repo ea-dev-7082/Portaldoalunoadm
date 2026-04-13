@@ -48,6 +48,10 @@ import {
   GraduationCap,
   AlertTriangle,
   PlayCircle,
+  Building2,
+  Mail,
+  Phone,
+  Trash2,
 } from "lucide-react";
 import { SearchInput } from "../components/ui/search-input";
 import {
@@ -1010,101 +1014,225 @@ export function Alunos() {
       {/* ── Modais e AlertDialogs ─────────────────────────────────────────── */}
       {selectedStudent && (
         <Dialog open={detailModalOpen} onOpenChange={(o) => !o && (isStudentDirty ? setDiscardStudentConfirmOpen(true) : setDetailModalOpen(false))}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{selectedStudent.id_aluno ? "Detalhes do Aluno" : "Cadastrar Aluno"}</DialogTitle>
-              <DialogDescription>
-                Visualize ou edite as informações completas do aluno.
-              </DialogDescription>
+          <DialogContent className="max-w-5xl p-0 overflow-hidden border-none shadow-2xl bg-background rounded-2xl">
+            <DialogHeader className="p-8 pb-4 bg-primary/5 border-b border-border/50">
+              <div className="flex items-center gap-6">
+                <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20 shadow-inner">
+                  <GraduationCap className="w-10 h-10" />
+                </div>
+                <div className="flex-1 space-y-1">
+                  <DialogTitle className="text-3xl font-black text-foreground flex items-center gap-3">
+                    {selectedStudent.nome || "Novo Aluno"}
+                    {!isEditingStudent && (
+                       <Badge variant="secondary" className="text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 border-emerald-100 py-1">
+                         Ativo
+                       </Badge>
+                    )}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-muted/50 border border-border/50">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground/60">CPF:</span>
+                      <span className="font-mono text-foreground">{formatCPF(selectedStudent.cpf) || "Não informado"}</span>
+                    </div>
+                    {!isEditingStudent && (
+                      <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100">
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span className="text-xs font-bold uppercase tracking-tight">{selectedStudent.empresa_nome || "Independente"}</span>
+                      </div>
+                    )}
+                  </DialogDescription>
+                </div>
+              </div>
             </DialogHeader>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-4">
-              <div className="space-y-1">
-                <Label>Nome</Label>
-                {isEditingStudent ? <Input value={selectedStudent.nome} onChange={e => { setSelectedStudent({...selectedStudent, nome: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.nome}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>CPF</Label>
-                {isEditingStudent ? <Input value={formatCPF(selectedStudent.cpf)} onChange={e => { setSelectedStudent({...selectedStudent, cpf: formatCPF(e.target.value)}); setIsStudentDirty(true); }} /> : <p className="font-medium">{formatCPF(selectedStudent.cpf)}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Empresa</Label>
-                {isEditingStudent ? (
-                  <Select value={selectedStudent.id_empresa || "none"} onValueChange={v => { setSelectedStudent({...selectedStudent, id_empresa: v}); setIsStudentDirty(true); }}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Independente</SelectItem>
-                      {companies.map(c => <SelectItem key={c.id_empresa} value={c.id_empresa}>{c.nome}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : <Badge variant="outline">{selectedStudent.empresa_nome}</Badge>}
-              </div>
-              <div className="space-y-1">
-                <Label>Telefone</Label>
-                {isEditingStudent ? <Input value={formatPhone(selectedStudent.telefone || "")} onChange={e => { setSelectedStudent({...selectedStudent, telefone: formatPhone(e.target.value)}); setIsStudentDirty(true); }} /> : <p className="font-medium">{formatPhone(selectedStudent.telefone || "")}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>E-mail</Label>
-                {isEditingStudent ? <Input value={selectedStudent.email || ""} onChange={e => { setSelectedStudent({...selectedStudent, email: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.email || "-"}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Cargo</Label>
-                {isEditingStudent ? <Input value={selectedStudent.cargo || ""} onChange={e => { setSelectedStudent({...selectedStudent, cargo: e.target.value}); setIsStudentDirty(true); }} /> : <p className="font-medium">{selectedStudent.cargo || "-"}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Data de Nascimento</Label>
-                {isEditingStudent ? (
-                  <Input 
-                    type="date" 
-                    value={selectedStudent.data_nascimento || ""} 
-                    onChange={e => { setSelectedStudent({...selectedStudent, data_nascimento: e.target.value}); setIsStudentDirty(true); }} 
-                  />
-                ) : (
-                  <p className="font-medium">
-                    {selectedStudent.data_nascimento ? new Date(selectedStudent.data_nascimento + "T00:00:00").toLocaleDateString("pt-BR") : "-"}
-                  </p>
-                )}
+
+            <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Personal & Professional Info */}
+                <div className="space-y-6">
+                  <section className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground border-b pb-2">Informações Pessoais</h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">Nome Completo</Label>
+                        {isEditingStudent ? (
+                          <Input value={selectedStudent.nome} onChange={e => { setSelectedStudent({...selectedStudent, nome: e.target.value}); setIsStudentDirty(true); }} className="h-10 border-muted-foreground/20 focus:border-primary" />
+                        ) : (
+                          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 font-semibold">{selectedStudent.nome}</div>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">CPF</Label>
+                          {isEditingStudent ? (
+                            <Input value={formatCPF(selectedStudent.cpf)} onChange={e => { setSelectedStudent({...selectedStudent, cpf: formatCPF(e.target.value)}); setIsStudentDirty(true); }} className="h-10 border-muted-foreground/20 focus:border-primary" />
+                          ) : (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 font-mono text-sm">{formatCPF(selectedStudent.cpf)}</div>
+                          )}
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">Data de Nascimento</Label>
+                          {isEditingStudent ? (
+                            <Input type="date" value={selectedStudent.data_nascimento || ""} onChange={e => { setSelectedStudent({...selectedStudent, data_nascimento: e.target.value}); setIsStudentDirty(true); }} className="h-10 border-muted-foreground/20 focus:border-primary" />
+                          ) : (
+                            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 font-semibold">{selectedStudent.data_nascimento ? new Date(selectedStudent.data_nascimento + "T00:00:00").toLocaleDateString("pt-BR") : "-"}</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground border-b pb-2">Vínculo Profissional</h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">Empresa / Filial Atual</Label>
+                        {isEditingStudent ? (
+                          <Select value={selectedStudent.id_empresa || "none"} onValueChange={v => { setSelectedStudent({...selectedStudent, id_empresa: v}); setIsStudentDirty(true); }}>
+                            <SelectTrigger className="h-10 border-muted-foreground/20 focus:border-primary">
+                              <SelectValue placeholder="Selecione a empresa ou deixe independente" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Independente / Sem Vínculo</SelectItem>
+                              {companies.map(c => <SelectItem key={c.id_empresa} value={c.id_empresa}>{c.nome}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="flex items-center justify-between p-3 rounded-xl bg-blue-50/50 border border-blue-200/50 shadow-sm group">
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-lg bg-white border border-blue-100 shadow-sm text-blue-600">
+                                <Building2 className="w-5 h-5" />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[10px] uppercase font-black text-blue-600/60 leading-tight">Empresa Contratante</span>
+                                <span className="font-bold text-lg text-blue-900 leading-tight">{selectedStudent.empresa_nome || "Aluno Independente"}</span>
+                              </div>
+                            </div>
+                            {selectedStudent.id_empresa && (
+                               <Badge className="bg-blue-600 text-white border-none text-[10px]">Vínculo Ativo</Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">Cargo Atual</Label>
+                        {isEditingStudent ? (
+                          <Input value={selectedStudent.cargo || ""} onChange={e => { setSelectedStudent({...selectedStudent, cargo: e.target.value}); setIsStudentDirty(true); }} placeholder="Ex: Gestor de Frota, Condutor..." className="h-10 border-muted-foreground/20 focus:border-primary" />
+                        ) : (
+                          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/40 font-semibold">{selectedStudent.cargo || "Não informado"}</div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                {/* Contacts & Training Info */}
+                <div className="space-y-6">
+                   <section className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground border-b pb-2">Contato Corporativo</h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">E-mail de Contato</Label>
+                        {isEditingStudent ? (
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input value={selectedStudent.email || ""} onChange={e => { setSelectedStudent({...selectedStudent, email: e.target.value}); setIsStudentDirty(true); }} className="h-10 pl-10 border-muted-foreground/20 focus:border-primary" placeholder="exemplo@email.com" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 border border-border/40 font-semibold overflow-hidden">
+                            <div className="p-1.5 rounded bg-primary/5 text-primary"><Mail className="w-3.5 h-3.5" /></div>
+                            <span className="truncate">{selectedStudent.email || "Sem e-mail cadastrado"}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] uppercase font-bold text-muted-foreground/80">Telefone / WhatsApp</Label>
+                        {isEditingStudent ? (
+                          <div className="relative">
+                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <Input value={formatPhone(selectedStudent.telefone || "")} onChange={e => { setSelectedStudent({...selectedStudent, telefone: formatPhone(e.target.value)}); setIsStudentDirty(true); }} className="h-10 pl-10 border-muted-foreground/20 focus:border-primary" placeholder="(00) 00000-0000" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/30 border border-border/40 font-semibold">
+                            <div className="flex items-center gap-3">
+                              <div className="p-1.5 rounded bg-primary/5 text-primary"><Phone className="w-3.5 h-3.5" /></div>
+                              <span>{formatPhone(selectedStudent.telefone || "") || "Sem telefone"}</span>
+                            </div>
+                            {selectedStudent.telefone && (
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" onClick={() => window.open(`https://wa.me/55${selectedStudent?.telefone?.replace(/\D/g, '')}`, '_blank')}>
+                                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.539 2.01 2.062-.51c.974.52 1.945.86 3.226.86 3.18 0 5.768-2.586 5.768-5.766-.001-3.181-2.586-5.766-5.768-5.766zM15.46 14.51c-.131.391-.659.721-1.07.781-.391.06-1.112.06-1.112.06s-1.01-.219-1.921-.781c-.911-.561-1.503-1.01-1.921-1.44-.418-.429-.911-1.01-1.112-1.503-.201-.492-.091-.911.06-1.11.151-.2.43-.51.58-.721.15-.211.23-.331.31-.511.08-.18.04-.331-.02-.451s-.51-1.231-.72-1.742c-.211-.511-.421-.451-.571-.451-.15 0-.331-.01-.511-.01-.181 0-.481.06-.721.3-.241.241-.931.901-.931 2.191s.961 2.552 1.082 2.703c.12.151 1.882 2.872 4.563 4.023.639.273 1.141.436 1.536.561.64.204 1.222.176 1.684.108.513-.075 1.579-.645 1.801-1.272.222-.627.222-1.166.155-1.272-.066-.105-.244-.176-.521-.307z"/></svg>
+                                </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground border-b pb-2">Jornada de Aprendizado</h3>
+                    {!isEditingStudent && selectedStudent.id_aluno ? (
+                       <div className="space-y-3">
+                         {selectedStudent.treinamentos && selectedStudent.treinamentos.length > 0 ? (
+                            <div className="grid grid-cols-1 gap-2.5">
+                              {selectedStudent.treinamentos.map((t: any) => (
+                                <div key={t.id_treinamento} className="group/item flex items-center justify-between p-3 rounded-xl border border-border/60 bg-muted/20 hover:bg-background hover:shadow-md hover:border-primary/30 transition-all duration-300">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-2 rounded-lg bg-background border border-border group-hover/item:border-primary/20 text-muted-foreground group-hover/item:text-primary transition-colors">
+                                      <PlayCircle className="w-5 h-5" />
+                                    </div>
+                                    <div className="flex flex-col">
+                                      <span className="font-bold text-sm tracking-tight text-foreground">{t.treinamento?.nome || "Curso sem nome"}</span>
+                                      <span className="text-[10px] uppercase font-black text-muted-foreground/60 tracking-wider">Módulos em progresso</span>
+                                    </div>
+                                  </div>
+                                  <Badge className={cn(
+                                    "text-[9px] font-black uppercase tracking-widest px-2",
+                                    t.treinamento?.status === 'Concluído' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-primary hover:bg-primary/90'
+                                  )}>
+                                    {t.treinamento?.status}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                         ) : (
+                            <div className="p-10 border border-dashed rounded-2xl flex flex-col items-center justify-center text-center opacity-40 grayscale">
+                               <PlayCircle className="w-10 h-10 mb-2" />
+                               <p className="text-xs font-bold uppercase tracking-widest leading-relaxed">Nenhuma Matrícula<br/>Detectada no Momento</p>
+                            </div>
+                         )}
+                       </div>
+                    ) : (
+                      <div className="p-6 bg-muted/30 rounded-xl border border-dashed text-center">
+                        <p className="text-xs font-medium text-muted-foreground italic">Salve o cadastro para visualizar o histórico de treinamentos.</p>
+                      </div>
+                    )}
+                  </section>
+                </div>
               </div>
             </div>
 
-            {/* List of Enrolled Trainings */}
-            {!isEditingStudent && selectedStudent.id_aluno && (
-              <div className="space-y-4 pt-4 border-t">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                  <PlayCircle className="w-4 h-4" />
-                  Treinamentos Matriculados
-                </h3>
-                {selectedStudent.treinamentos && selectedStudent.treinamentos.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-2">
-                    {selectedStudent.treinamentos.map((t: any) => (
-                      <div key={t.id_treinamento} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-sm">{t.treinamento?.nome || "Treinamento sem nome"}</span>
-                          <span className="text-xs text-muted-foreground">{t.treinamento?.status || "Status não definido"}</span>
-                        </div>
-                        <Badge variant={t.treinamento?.status === 'Concluído' ? 'secondary' : 'default'} className="text-[10px]">
-                          {t.treinamento?.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic text-center py-2">Nenhum treinamento vinculado a este aluno.</p>
+            <div className="bg-muted/30 px-8 py-5 border-t border-border flex items-center justify-between">
+              <div>
+                {selectedStudent.id_aluno && (
+                   <Button variant="ghost" className="text-destructive hover:bg-destructive/10 font-bold text-xs uppercase tracking-widest h-10" onClick={() => setDeleteConfirmOpen(true)}>
+                     <Trash2 className="w-4 h-4 mr-2" /> Excluir Registro
+                   </Button>
                 )}
               </div>
-            )}
-
-            <div className="flex justify-between border-t pt-4">
-              {selectedStudent.id_aluno && <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>Excluir</Button> }
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 {isEditingStudent ? (
                   <>
-                    <Button variant="outline" onClick={handleCancelEdit}>Cancelar</Button>
-                    <Button onClick={handleSaveStudent} disabled={isSubmitting}>Salvar Alterações</Button>
+                    <Button variant="ghost" onClick={handleCancelEdit} className="h-10 px-6 font-bold text-xs uppercase tracking-widest">Descartar</Button>
+                    <Button onClick={handleSaveStudent} disabled={isSubmitting} className="h-10 px-8 font-bold text-xs uppercase tracking-widest shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90">
+                      {isSubmitting ? "Sincronizando..." : "Confirmar Alterações"}
+                    </Button>
                   </>
                 ) : (
                   <>
-                    <Button variant="outline" onClick={() => setDetailModalOpen(false)}>Fechar</Button>
-                    <Button onClick={() => setIsEditingStudent(true)}>Editar</Button>
+                    <Button variant="outline" onClick={() => setDetailModalOpen(false)} className="h-10 px-6 font-bold text-xs uppercase tracking-widest border-muted-foreground/20 hover:bg-background">Fechar</Button>
+                    <Button onClick={() => setIsEditingStudent(true)} className="h-10 px-8 font-bold text-xs uppercase tracking-widest shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90">
+                      <Pencil className="w-3.5 h-3.5 mr-2" /> Editar Dados
+                    </Button>
                   </>
                 )}
               </div>
