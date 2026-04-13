@@ -173,11 +173,500 @@ interface Material {
   conteudo: string;
 }
 
+const ParticipatingStudentsList = ({ 
+  trainingStudents, 
+  allStudents 
+}: { 
+  trainingStudents: any[], 
+  allStudents: any[] 
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [selectedPlans, setSelectedPlans] = useState<string[]>([]);
+  const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+    field: 'nome',
+    direction: 'asc'
+  });
+
+  const resolvedStudents = useMemo(() => {
+    return (trainingStudents || []).map(student => {
+      const resolved = allStudents.find(s => s.id === student.id) || student;
+      return {
+        ...student,
+        ...resolved,
+        plano: student.parceria || "Avulso"
+      };
+    });
+  }, [trainingStudents, allStudents]);
+
+  const companyOptions = useMemo(() => {
+    return Array.from(new Set(resolvedStudents.map(s => s.empresa).filter(Boolean))).sort();
+  }, [resolvedStudents]);
+
+  const planOptions = useMemo(() => {
+    return Array.from(new Set(resolvedStudents.map(s => s.plano).filter(Boolean))).sort();
+  }, [resolvedStudents]);
+
+  const toggleSort = (field: string) => {
+    if (sortConfig?.field === field) {
+      setSortConfig({
+        field,
+        direction: sortConfig.direction === 'asc' ? 'desc' : 'asc'
+      });
+    } else {
+      setSortConfig({ field, direction: 'asc' });
+    }
+  };
+
+  const filteredAndSortedStudents = useMemo(() => {
+    let result = [...resolvedStudents];
+
+    if (searchTerm) {
+      const lower = searchTerm.toLowerCase();
+      result = result.filter(s => 
+        (s.nome?.toLowerCase() || "").includes(lower) || 
+        (s.cargo?.toLowerCase() || "").includes(lower)
+      );
+    }
+
+    if (selectedCompanies.length > 0) {
+      result = result.filter(s => selectedCompanies.includes(s.empresa));
+    }
+
+    if (selectedPlans.length > 0) {
+      result = result.filter(s => selectedPlans.includes(s.plano));
+    }
+
+    if (sortConfig) {
+      result.sort((a, b) => {
+        const aVal = (a[sortConfig.field as keyof typeof a] || "").toString();
+        const bVal = (b[sortConfig.field as keyof typeof b] || "").toString();
+        return sortConfig.direction === 'asc' 
+          ? aVal.localeCompare(bVal) 
+          : bVal.localeCompare(aVal);
+      });
+    }
+
+    return result;
+  }, [resolvedStudents, searchTerm, selectedCompanies, selectedPlans, sortConfig]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-4 items-end">
+        <div className="flex-1 w-full">
+          <SearchInput 
+            placeholder="Buscar por nome ou cargo..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-9"
+          />
+        </div>
+      </div>
+
+      <div className="rounded-lg border overflow-hidden shadow-sm bg-background">
+        <div className="max-h-[300px] overflow-y-auto overflow-x-hidden relative">
+          <Table>
+            <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+              <TableRow className="hover:bg-transparent border-b">
+                <TableHead 
+                  className="cursor-pointer select-none hover:text-primary transition-colors group"
+                  onClick={() => toggleSort('nome')}
+                >
+                  <div className="flex items-center gap-1">
+                    Nome
+                    {sortConfig?.field === 'nome' ? (
+                      sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                    )}
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer select-none hover:text-primary transition-colors group"
+                  onClick={() => toggleSort('cargo')}
+                >
+                  <div className="flex items-center gap-1">
+                    Cargo
+                    {sortConfig?.field === 'cargo' ? (
+                      sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                    )}
+                  </div>
+                </TableHead>
+                <TableHead className="p-0 border-r border-muted/20">
+                  <MultiSelectFilter
+                    label="Empresa"
+                    options={companyOptions}
+                    selectedValues={selectedCompanies}
+                    onSelect={setSelectedCompanies}
+                  />
+                </TableHead>
+                <TableHead className="p-0">
+                  <MultiSelectFilter
+                    label="Plano"
+                    options={planOptions}
+                    selectedValues={selectedPlans}
+                    onSelect={setSelectedPlans}
+                  />
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAndSortedStudents.length > 0 ? (
+                filteredAndSortedStudents.map((student) => (
+                  <TableRow key={student.id} className="hover:bg-muted/30">
+                    <TableCell className="font-medium">{student.nome}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{student.cargo}</TableCell>
+                    <TableCell className="text-xs">{student.empresa}</TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant="outline" 
+                        className={cn(
+                          "text-[10px] border-none px-0 font-bold",
+                          student.plano?.includes("Voucher") ? "text-emerald-600" :
+                          student.plano?.includes("Desconto") ? "text-blue-600" : "text-muted-foreground"
+                        )}
+                      >
+                        {student.plano}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-12 text-muted-foreground italic text-sm">
+                    {searchTerm || selectedCompanies.length > 0 || selectedPlans.length > 0 
+                      ? "Nenhum aluno encontrado para os filtros aplicados." 
+                      : "Nenhum aluno matriculado."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+      
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[10px] text-muted-foreground italic">
+          Mostrando {filteredAndSortedStudents.length} de {resolvedStudents.length} alunos
+        </span>
+        {(searchTerm || selectedCompanies.length > 0 || selectedPlans.length > 0) && (
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-6 text-[10px] text-destructive hover:bg-destructive/10"
+            onClick={() => {
+              setSearchTerm("");
+              setSelectedCompanies([]);
+              setSelectedPlans([]);
+            }}
+          >
+            Limpar filtros
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ParticipatingCompaniesList = ({ 
+  trainingStudents, 
+  allStudents,
+  allCompanies
+}: { 
+  trainingStudents: any[], 
+  allStudents: any[],
+  allCompanies: any[]
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+    field: 'nome',
+    direction: 'asc'
+  });
+
+  const participatingCompanies = useMemo(() => {
+    const uniqueEmpNames = Array.from(new Set((trainingStudents || []).map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean)));
+    return uniqueEmpNames.map(name => {
+      const company = allCompanies.find(c => c.nome === name);
+      return {
+        nome: name,
+        cnpj: company?.cnpj || "N/A"
+      };
+    });
+  }, [trainingStudents, allStudents, allCompanies]);
+
+  const toggleSort = (field: string) => {
+    if (sortConfig?.field === field) {
+      setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+    } else {
+      setSortConfig({ field, direction: 'asc' });
+    }
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    let result = [...participatingCompanies];
+    if (searchTerm) {
+      result = result.filter(c => c.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+    if (sortConfig) {
+      result.sort((a, b) => {
+        const aVal = a.nome;
+        const bVal = b.nome;
+        return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      });
+    }
+    return result;
+  }, [participatingCompanies, searchTerm, sortConfig]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-4 items-end">
+        <div className="flex-1 w-full">
+          <SearchInput 
+            placeholder="Buscar empresa participante..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-9"
+          />
+        </div>
+      </div>
+      <div className="border rounded-xl overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+        <div className="max-h-[300px] overflow-y-auto overflow-x-hidden relative">
+          <Table>
+            <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+              <TableRow className="hover:bg-transparent border-b">
+                <TableHead 
+                  className="w-[60%] cursor-pointer select-none hover:text-primary transition-colors group"
+                  onClick={() => toggleSort('nome')}
+                >
+                  <div className="flex items-center gap-1">
+                    Nome da Empresa
+                    {sortConfig?.field === 'nome' ? (
+                      sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                    )}
+                  </div>
+                </TableHead>
+                <TableHead className="w-[40%] text-right pr-6">CNPJ</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAndSorted.length > 0 ? (
+                filteredAndSorted.map(c => (
+                  <TableRow key={c.nome} className="hover:bg-muted/30">
+                    <TableCell className="font-medium py-3 max-w-[400px] truncate" title={c.nome}>{c.nome}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs text-right pr-6 font-mono">{c.cnpj}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={2} className="text-center py-12 text-muted-foreground text-sm italic">
+                    {searchTerm ? "Nenhuma empresa encontrada para a busca." : "Nenhuma empresa detectada."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ParticipatingContactsList = ({ 
+  trainingStudents, 
+  allStudents,
+  allCompanies,
+  allContacts
+}: { 
+  trainingStudents: any[], 
+  allStudents: any[],
+  allCompanies: any[],
+  allContacts: any[]
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
+  const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+    field: 'nome',
+    direction: 'asc'
+  });
+
+  const uniqueEmpIds = useMemo(() => {
+    const names = Array.from(new Set((trainingStudents || []).map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean)));
+    return names.map(name => allCompanies.find(c => c.nome === name)?.id).filter(Boolean);
+  }, [trainingStudents, allStudents, allCompanies]);
+
+  const relevantContacts = useMemo(() => {
+    return (allContacts || []).filter(c => uniqueEmpIds.includes(c.id_empresa)).map(c => ({
+      ...c,
+      companyLabel: allCompanies.find(comp => comp.id === c.id_empresa)?.nome || "N/A"
+    }));
+  }, [allContacts, uniqueEmpIds, allCompanies]);
+
+  const companyOptions = useMemo(() => {
+    return Array.from(new Set(relevantContacts.map(c => c.companyLabel))).sort();
+  }, [relevantContacts]);
+
+  const sectorOptions = useMemo(() => {
+    return Array.from(new Set(relevantContacts.map(c => c.setor).filter(Boolean))).sort();
+  }, [relevantContacts]);
+
+  const toggleSort = (field: string) => {
+    if (sortConfig?.field === field) {
+      setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+    } else {
+      setSortConfig({ field, direction: 'asc' });
+    }
+  };
+
+  const filteredAndSorted = useMemo(() => {
+    let result = [...relevantContacts];
+    if (searchTerm) {
+      const low = searchTerm.toLowerCase();
+      result = result.filter(c => 
+        (c.nome?.toLowerCase() || "").includes(low) || 
+        (c.setor?.toLowerCase() || "").includes(low)
+      );
+    }
+    if (selectedCompanies.length > 0) {
+      result = result.filter(c => selectedCompanies.includes(c.companyLabel));
+    }
+    if (selectedSectors.length > 0) {
+      result = result.filter(c => selectedSectors.includes(c.setor));
+    }
+    if (sortConfig) {
+      result.sort((a, b) => {
+        const aVal = (a[sortConfig.field as keyof typeof a] || "").toString();
+        const bVal = (b[sortConfig.field as keyof typeof b] || "").toString();
+        return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      });
+    }
+    return result;
+  }, [relevantContacts, searchTerm, selectedCompanies, selectedSectors, sortConfig]);
+
+  const copyToClipboard = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${type} copiado para a área de transferência!`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-4 items-end">
+        <div className="flex-1 w-full">
+          <SearchInput 
+            placeholder="Buscar contato ou setor..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-9"
+          />
+        </div>
+      </div>
+      <div className="border rounded-xl shadow-sm bg-background border-muted-foreground/20 overflow-hidden">
+        <div className="max-h-[300px] overflow-y-auto overflow-x-hidden relative">
+          <Table>
+            <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+              <TableRow className="hover:bg-transparent border-b">
+                <TableHead 
+                  className="cursor-pointer select-none hover:text-primary transition-colors group"
+                  onClick={() => toggleSort('nome')}
+                >
+                  <div className="flex items-center gap-1">
+                    Nome
+                    {sortConfig?.field === 'nome' ? (
+                      sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                    )}
+                  </div>
+                </TableHead>
+                <TableHead className="p-0 border-r border-muted/20">
+                  <MultiSelectFilter
+                    label="Setor"
+                    options={sectorOptions}
+                    selectedValues={selectedSectors}
+                    onSelect={setSelectedSectors}
+                  />
+                </TableHead>
+                <TableHead className="p-0">
+                  <MultiSelectFilter
+                    label="Empresa"
+                    options={companyOptions}
+                    selectedValues={selectedCompanies}
+                    onSelect={setSelectedCompanies}
+                  />
+                </TableHead>
+                <TableHead className="w-[100px] text-right pr-4">Ação</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredAndSorted.length > 0 ? (
+                filteredAndSorted.map(c => (
+                  <TableRow key={c.id_contato} className="hover:bg-muted/30 group">
+                    <TableCell className="font-medium py-3">
+                      <div>
+                        {c.nome}
+                        {c.telefone && (
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3 h-3" /> {c.telefone}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {c.setor ? <Badge variant="outline" className="text-[10px]">{c.setor}</Badge> : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[150px] truncate" title={c.companyLabel}>{c.companyLabel}</TableCell>
+                    <TableCell className="text-right pr-2">
+                       <div className="flex justify-end gap-1 opacity-10 group-hover:opacity-100 transition-opacity">
+                        {c.email && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7" 
+                            onClick={() => copyToClipboard(c.email, "E-mail")}
+                            title={c.email}
+                          >
+                            <Mail className="w-3 h-3" />
+                          </Button>
+                        )}
+                        {c.telefone && (
+                           <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50" 
+                            onClick={() => window.open(`https://wa.me/55${c.telefone.replace(/\D/g, '')}`, '_blank')}
+                          >
+                            <Link2 className="w-3 h-3" />
+                          </Button>
+                        )}
+                       </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-12 text-muted-foreground text-sm italic">
+                    {relevantContacts.length === 0 ? "Nenhum contato encontrado para as empresas do treinamento." : "Nenhum contato encontrado para os filtros."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export function Treinamentos() {
   const [trainings, setTrainings] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
   const [dbCompanies, setDbCompanies] = useState<any[]>([]);
   const [dbStudents, setDbStudents] = useState<any[]>([]);
+  const [dbContacts, setDbContacts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -408,12 +897,24 @@ export function Treinamentos() {
       setFetchError(prev => prev ? `${prev} | ${msg}` : msg);
     }
   }, []);
+  const fetchContacts = useCallback(async () => {
+    try {
+      const headers = await getAuthHeader();
+      const res = await fetch("https://wytbbtlxrhkvqvlwjivc.supabase.co/rest/v1/contato_empresa?select=*&order=nome", { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setDbContacts(Array.isArray(data) ? data : []);
+      }
+    } catch (err: any) {
+      console.error("fetchContacts error:", err);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      await Promise.all([fetchTrainings(), fetchStudents(), fetchCompanies()]);
+      await Promise.all([fetchTrainings(), fetchStudents(), fetchCompanies(), fetchContacts()]);
       setMaterials([]);
     } catch (err: any) {
       console.error("Erro em fetchData:", err);
@@ -422,7 +923,7 @@ export function Treinamentos() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchTrainings, fetchCompanies, fetchStudents]);
+  }, [fetchTrainings, fetchCompanies, fetchStudents, fetchContacts]);
 
   const formatForDateTimeLocal = (dateStr: string) => {
     if (!dateStr) return "";
@@ -927,6 +1428,15 @@ export function Treinamentos() {
     nome: c.nome,
     cnpj: c.cnpj
   })), [dbCompanies]);
+
+  const allContacts = useMemo(() => (dbContacts || []).map(c => ({
+    id: c.id_contato,
+    nome: c.nome,
+    setor: c.setor,
+    telefone: c.telefone,
+    email: c.email,
+    id_empresa: c.id_empresa
+  })), [dbContacts]);
 
   const filteredTrainings = genericSort(
     trainings.filter((training) => {
@@ -1439,86 +1949,74 @@ export function Treinamentos() {
                                                 e.stopPropagation();
                                                 handleOpenTesteExtra(testInfo.id_teste, training.id);
                                               }}
-                                            >
-                                              <Users className="w-3 h-3" />
-                                              Gerenciar Teste Extra
-                                            </Button>
-                                          );
-                                        }
-                                        return null;
-                                      })()}
-                                  </Card>
-                                );
-                              });
-                          }
-                          return (
-                            <div className="col-span-2 text-center py-6 bg-muted/20 rounded-lg border border-dashed text-sm text-muted-foreground italic">
-                              Nenhum módulo configurado para este treinamento.
-                            </div>
-                          );
-                        })()}
-                      </div>
+                                          >
+                                            <Users className="w-3 h-3" />
+                                            Gerenciar Teste Extra
+                                          </Button>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
+                                </Card>
+                              );
+                            });
+                        }
+                        return (
+                          <div className="col-span-2 text-center py-6 bg-muted/20 rounded-lg border border-dashed text-sm text-muted-foreground italic">
+                            Nenhum módulo configurado para este treinamento.
+                          </div>
+                        );
+                      })()}
                     </div>
+                  </div>
 
-                    <div className="mt-10 space-y-4">
+                  <div className="mt-10 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold text-lg flex items-center gap-2">
+                        <Users className="w-5 h-5 text-green-500" />
+                        Lista Completa de Alunos
+                      </h4>
+                      <Badge variant="outline">{training.participants} Aluno(s)</Badge>
+                    </div>
+                    
+                    <ParticipatingStudentsList 
+                      trainingStudents={training.students || []} 
+                      allStudents={allStudents} 
+                    />
+                  </div>
+
+                  <div className="mt-10 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <section className="space-y-4">
                       <div className="flex items-center justify-between">
                         <h4 className="font-semibold text-lg flex items-center gap-2">
-                          <Users className="w-5 h-5 text-green-500" />
-                          Lista Completa de Alunos
+                          <Building2 className="w-5 h-5 text-blue-500" />
+                          Empresas Participantes
                         </h4>
-                          <Badge variant="outline">{training.participants} Aluno(s)</Badge>
-
                       </div>
-                      <div className="rounded-lg border overflow-hidden">
-                        <Table>
-                          <TableHeader className="bg-muted/50">
-                            <TableRow>
-                              <TableHead>Nome</TableHead>
-                              <TableHead>Empresa / Cargo</TableHead>
-                              <TableHead>Vínculo / Parceria</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {training.students && training.students.length > 0 ? (
-                              training.students.map((student: any) => {
-                                const resolved = allStudents.find(s => s.id === student.id) || student;
-                                return (
-                                  <TableRow key={student.id}>
-                                    <TableCell className="font-medium">{resolved.nome}</TableCell>
-                                    <TableCell>
-                                      <div className="flex flex-col">
-                                        <span className="text-sm">{resolved.empresa}</span>
-                                        <span className="text-[10px] text-muted-foreground">{resolved.cargo}</span>
-                                      </div>
-                                    </TableCell>
-                                    <TableCell>
-                                      <Badge 
-                                        variant="outline" 
-                                        className={cn(
-                                          "text-[10px] border-none px-0 font-bold",
-                                          student.parceria?.includes("Voucher") ? "text-emerald-600" :
-                                          student.parceria?.includes("Desconto") ? "text-blue-600" : "text-muted-foreground"
-                                        )}
-                                      >
-                                        {student.parceria || "Avulso"}
-                                      </Badge>
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })
-                            ) : (
-                              <TableRow>
-                                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic text-sm">
-                                  Nenhum aluno matriculado neste treinamento.
-                                </TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
+                      <ParticipatingCompaniesList 
+                        trainingStudents={training.students || []} 
+                        allStudents={allStudents}
+                        allCompanies={allCompanies}
+                      />
+                    </section>
 
-                    <div className="flex justify-end gap-2 mt-8 pt-4 border-t">
+                    <section className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-lg flex items-center gap-2">
+                          <Building2 className="w-5 h-5 text-blue-500" />
+                          Contatos das Empresas
+                        </h4>
+                      </div>
+                      <ParticipatingContactsList 
+                        trainingStudents={training.students || []} 
+                        allStudents={allStudents}
+                        allCompanies={allCompanies}
+                        allContacts={allContacts}
+                      />
+                    </section>
+                  </div>
+
+                  <div className="flex justify-end gap-2 mt-8 pt-4 border-t">
                       <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleEditTraining(training); }}>
                         <Pencil className="w-4 h-4 mr-2" />
                         Editar Treinamento
@@ -2255,97 +2753,42 @@ export function Treinamentos() {
                         </div>
                       </div>
 
-                      <div className="border rounded-xl overflow-hidden shadow-sm bg-background border-muted-foreground/20">
-                        <div className="max-h-[300px] overflow-auto">
-                          <Table>
-                            <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
-                              <TableRow>
-                                <TableHead className="w-[40%]">Nome</TableHead>
-                                <TableHead className="w-[50%]">Cargo / Empresa</TableHead>
-                                <TableHead className="w-[10%] text-right pr-4"></TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {trainingData.students.length > 0 ? (
-                                trainingData.students.map(studentId => {
-                                  const student = allStudents.find(s => s.id === studentId);
-                                  return (
-                                    <TableRow key={studentId} className="group hover:bg-muted/30">
-                                      <TableCell className="font-medium py-3">{student?.nome}</TableCell>
-                                      <TableCell className="text-muted-foreground text-xs max-w-[500px] truncate" title={`${student?.cargo} em ${student?.empresa}`}>
-                                        {student?.cargo} em <span className="font-semibold">{student?.empresa}</span>
-                                      </TableCell>
-                                      <TableCell className="text-right pr-2">
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 text-destructive opacity-20 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
-                                          onClick={() => {
-                                            setTrainingData({
-                                              ...trainingData,
-                                              students: trainingData.students.filter(id => id !== studentId)
-                                            });
-                                            setIsTrainingDirty(true);
-                                          }}
-                                        >
-                                          <X className="w-4 h-4" />
-                                        </Button>
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })
-                              ) : (
-                                <TableRow>
-                                  <TableCell colSpan={3} className="text-center py-12 text-muted-foreground text-sm italic">
-                                    Nenhum aluno matriculado.
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
+                      <ParticipatingStudentsList 
+                        trainingStudents={trainingData.students.map(id => ({ id }))} 
+                        allStudents={allStudents} 
+                      />
                     </div>
 
-                    {/* COLUNA DIREITA: EMPRESAS PARTICIPANTES */}
                     <div className="xl:col-span-5 space-y-6 lg:border-l lg:pl-10 lg:border-muted-foreground/10">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold flex items-center gap-2">
-                          <Building2 className="w-5 h-5 text-blue-600" />
-                          Empresas Participantes
-                        </h3>
-                      </div>
+                      <div className="space-y-8">
+                        <section className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold flex items-center gap-2">
+                              <Building2 className="w-5 h-5 text-blue-600" />
+                              Empresas Participantes
+                            </h3>
+                          </div>
+                          <ParticipatingCompaniesList 
+                            trainingStudents={trainingData.students.map(id => ({ id }))} 
+                            allStudents={allStudents}
+                            allCompanies={allCompanies}
+                          />
+                        </section>
 
-                      <div className="border rounded-xl overflow-hidden shadow-sm bg-background border-muted-foreground/20">
-                        <div className="max-h-[415px] overflow-auto">
-                          <Table>
-                            <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
-                              <TableRow>
-                                <TableHead className="w-[60%]">Nome da Empresa</TableHead>
-                                <TableHead className="w-[40%] text-right pr-6">CNPJ</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).length > 0 ? (
-                                Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).map(empName => {
-                                  const company = allCompanies.find((c: any) => c.nome === empName);
-                                  return (
-                                    <TableRow key={empName} className="hover:bg-muted/30">
-                                      <TableCell className="font-medium py-3 max-w-[800px] truncate" title={empName}>{empName}</TableCell>
-                                      <TableCell className="text-muted-foreground text-xs text-right pr-6 font-mono">{company?.cnpj || "N/A"}</TableCell>
-                                    </TableRow>
-                                  );
-                                })
-                              ) : (
-                                <TableRow>
-                                  <TableCell colSpan={2} className="text-center py-12 text-muted-foreground text-sm italic">
-                                    Nenhuma empresa detectada.
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </TableBody>
-                          </Table>
-                        </div>
+                        <section className="space-y-4 pt-4 border-t border-muted-foreground/10">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold flex items-center gap-2">
+                              <Users className="w-5 h-5 text-blue-600" />
+                              Contatos das Empresas
+                            </h3>
+                          </div>
+                          <ParticipatingContactsList 
+                            trainingStudents={trainingData.students.map(id => ({ id }))} 
+                            allStudents={allStudents}
+                            allCompanies={allCompanies}
+                            allContacts={allContacts}
+                          />
+                        </section>
                       </div>
                     </div>
                   </div>

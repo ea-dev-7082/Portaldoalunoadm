@@ -28,9 +28,14 @@ import {
 import {
   Plus, MoreVertical, Pencil, Trash2, Search, Building2,
   MapPin, Phone, Mail, UserRound, CheckCircle2, Handshake, X, Percent,
+  ArrowUp, ArrowDown, ArrowUpDown, Filter, Copy, ExternalLink, ChevronDown
 } from "lucide-react";
 import { SearchInput } from "../components/ui/search-input";
+import { MultiSelectFilter } from "../components/MultiSelectFilter";
+import { ScrollArea, ScrollBar } from "../components/ui/scroll-area";
 import { cn } from "../components/ui/utils";
+import { useMemo } from "react";
+import { toast } from "sonner";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://wytbbtlxrhkvqvlwjivc.supabase.co";
@@ -736,6 +741,593 @@ export function Empresas() {
       ? "border-l-[3px] border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20"
       : "";
 
+  // ─── Sub-components for High-Density Lists ─────────────────────────────────
+  
+  const CompaniesList = ({ 
+    items, 
+    allMatrices, 
+    onOpenView, 
+    onOpenEdit, 
+    onOpenDelete 
+  }: { 
+    items: any[], 
+    allMatrices: any[],
+    onOpenView: (c: any) => void,
+    onOpenEdit: (c: any) => void,
+    onOpenDelete: (id: string) => void
+  }) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [selectedMatrices, setSelectedMatrices] = useState<string[]>([]);
+    const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+      field: 'nome',
+      direction: 'asc'
+    });
+
+    const matrixOptions = useMemo(() => 
+      Array.from(new Set(items.map(e => allMatrices.find(m => m.id_empresa === e.id_matriz)?.nome || "Independente"))).sort()
+    , [items, allMatrices]);
+
+    const toggleSort = (field: string) => {
+      if (sortConfig?.field === field) {
+        setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+      } else {
+        setSortConfig({ field, direction: 'asc' });
+      }
+    };
+
+    const filteredAndSorted = useMemo(() => {
+      let res = [...items];
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        res = res.filter(e => e.nome?.toLowerCase().includes(q) || e.cnpj?.includes(q));
+      }
+      if (selectedMatrices.length > 0) {
+        res = res.filter(e => {
+          const mName = allMatrices.find(m => m.id_empresa === e.id_matriz)?.nome || "Independente";
+          return selectedMatrices.includes(mName);
+        });
+      }
+      if (sortConfig) {
+        res.sort((a, b) => {
+          const aVal = (a[sortConfig.field] || "").toString();
+          const bVal = (b[sortConfig.field] || "").toString();
+          return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+      }
+      return res;
+    }, [items, searchTerm, selectedMatrices, sortConfig, allMatrices]);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1 w-full">
+            <SearchInput 
+              placeholder="Buscar por nome ou CNPJ..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+          <ScrollArea className="h-[350px] w-full relative">
+            <Table>
+              <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+                <TableRow className="hover:bg-transparent border-b border-muted-foreground/10">
+                  <TableHead 
+                    className="cursor-pointer select-none hover:text-primary transition-colors group"
+                    onClick={() => toggleSort('nome')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Nome
+                      {sortConfig?.field === 'nome' ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-36 text-[10px] uppercase font-bold text-muted-foreground tracking-widest">CNPJ</TableHead>
+                  <TableHead className="w-28 text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Status</TableHead>
+                  <TableHead className="p-0 border-l border-muted/20">
+                    <MultiSelectFilter 
+                      label="Matriz"
+                      options={matrixOptions}
+                      selectedValues={selectedMatrices}
+                      onSelect={setSelectedMatrices}
+                    />
+                  </TableHead>
+                  <TableHead className="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAndSorted.length > 0 ? (
+                  filteredAndSorted.map((company) => (
+                    <TableRow key={company.id_empresa} className="hover:bg-muted/30 cursor-pointer group" onClick={() => onOpenView(company)}>
+                      <TableCell className="font-semibold text-sm group-hover:text-primary transition-colors">{company.nome}</TableCell>
+                      <TableCell className="font-mono text-[10px] text-muted-foreground">{company.cnpj}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="text-[9px] uppercase font-bold">
+                          {company.id_matriz ? "Filial" : "Indep."}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground font-medium">
+                        {company.id_matriz ? allMatrices.find(m => m.id_empresa === company.id_matriz)?.nome || "Sim" : "—"}
+                      </TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => onOpenEdit(company)}><Pencil className="w-4 h-4 mr-2" />Alterar</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onOpenDelete(company.id_empresa)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground italic text-sm">
+                      Nenhuma empresa encontrada.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[10px] text-muted-foreground italic truncate">
+            Mostrando {filteredAndSorted.length} de {items.length} empresas
+          </span>
+          {(searchTerm || selectedMatrices.length > 0) && (
+            <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive hover:bg-destructive/10" onClick={() => { setSearchTerm(""); setSelectedMatrices([]); }}>Limpar filtros</Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const MatrizesList = ({ 
+    items, 
+    allCompanies,
+    onOpenView, 
+    onOpenEdit, 
+    onOpenDelete 
+  }: { 
+    items: any[], 
+    allCompanies: any[],
+    onOpenView: (c: any) => void,
+    onOpenEdit: (c: any) => void,
+    onOpenDelete: (id: string) => void
+  }) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+      field: 'nome',
+      direction: 'asc'
+    });
+
+    const toggleSort = (field: string) => {
+      if (sortConfig?.field === field) {
+        setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+      } else {
+        setSortConfig({ field, direction: 'asc' });
+      }
+    };
+
+    const filteredAndSorted = useMemo(() => {
+      let res = [...items];
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        res = res.filter(e => e.nome?.toLowerCase().includes(q) || e.cnpj?.includes(q));
+      }
+      if (sortConfig) {
+        res.sort((a, b) => {
+          const aVal = (a[sortConfig.field] || "").toString();
+          const bVal = (b[sortConfig.field] || "").toString();
+          if (sortConfig.field === 'qtd_filiais') {
+             const qa = allCompanies.filter(e => e.id_matriz === a.id_empresa).length;
+             const qb = allCompanies.filter(e => e.id_matriz === b.id_empresa).length;
+             return sortConfig.direction === 'asc' ? qa - qb : qb - qa;
+          }
+          return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+      }
+      return res;
+    }, [items, searchTerm, sortConfig, allCompanies]);
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1 w-full">
+            <SearchInput 
+              placeholder="Buscar matriz por nome ou CNPJ..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+          <ScrollArea className="h-[300px] w-full relative">
+            <Table>
+              <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+                <TableRow className="hover:bg-transparent border-b border-muted-foreground/10">
+                  <TableHead 
+                    className="cursor-pointer select-none hover:text-primary transition-colors group"
+                    onClick={() => toggleSort('nome')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Nome da Matriz
+                      {sortConfig?.field === 'nome' ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-48 text-[10px] uppercase font-bold text-muted-foreground tracking-widest">CNPJ</TableHead>
+                  <TableHead 
+                    className="w-32 cursor-pointer select-none hover:text-primary transition-colors group text-center"
+                    onClick={() => toggleSort('qtd_filiais')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      Filiais
+                      {sortConfig?.field === 'qtd_filiais' ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAndSorted.length > 0 ? (
+                  filteredAndSorted.map((matriz) => (
+                    <TableRow key={matriz.id_empresa} className="hover:bg-muted/30 cursor-pointer group" onClick={() => onOpenView(matriz)}>
+                      <TableCell className="font-bold text-sm text-primary group-hover:underline">{matriz.nome}</TableCell>
+                      <TableCell className="font-mono text-[10px] text-muted-foreground">{matriz.cnpj}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="font-bold bg-primary/5 text-primary border-primary/20">
+                          {allCompanies.filter(e => e.id_matriz === matriz.id_empresa).length}
+                        </Badge>
+                      </TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => onOpenEdit(matriz)}><Pencil className="w-4 h-4 mr-2" />Alterar</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onOpenDelete(matriz.id_empresa)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-12 text-muted-foreground italic text-sm">
+                      Nenhuma matriz encontrada.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+      </div>
+    );
+  };
+
+  const ContatosList = ({ 
+    items, 
+    allCompanies,
+    allSectors,
+    onOpenEdit, 
+    onOpenDelete,
+    hideCompanyColumn = false
+  }: { 
+    items: Contact[], 
+    allCompanies: any[],
+    allSectors: string[],
+    onOpenEdit: (c: Contact) => void,
+    onOpenDelete: (id: string) => void,
+    hideCompanyColumn?: boolean
+  }) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
+    const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
+    const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+      field: 'nome',
+      direction: 'asc'
+    });
+
+    const companyOptions = useMemo(() => 
+      Array.from(new Set(items.map(c => allCompanies.find(e => e.id_empresa === c.id_empresa)?.nome || "Empresa Desconhecida"))).sort()
+    , [items, allCompanies]);
+
+    const toggleSort = (field: string) => {
+      if (sortConfig?.field === field) {
+        setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+      } else {
+        setSortConfig({ field, direction: 'asc' });
+      }
+    };
+
+    const filteredAndSorted = useMemo(() => {
+      let res = [...items];
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        res = res.filter(c => 
+          c.nome.toLowerCase().includes(q) || 
+          c.email?.toLowerCase().includes(q) || 
+          c.telefone?.includes(q) || 
+          c.setor?.toLowerCase().includes(q)
+        );
+      }
+      if (selectedCompanies.length > 0) {
+        res = res.filter(c => {
+          const eName = allCompanies.find(e => e.id_empresa === c.id_empresa)?.nome || "";
+          return selectedCompanies.includes(eName);
+        });
+      }
+      if (selectedSectors.length > 0) {
+        res = res.filter(c => selectedSectors.includes(c.setor?.toUpperCase() || "OUTRO"));
+      }
+      if (sortConfig) {
+        res.sort((a, b) => {
+          const aVal = (a[sortConfig.field as keyof Contact] || "").toString();
+          const bVal = (b[sortConfig.field as keyof Contact] || "").toString();
+          return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+      }
+      return res;
+    }, [items, searchTerm, selectedCompanies, selectedSectors, sortConfig, allCompanies]);
+
+    const handleCopyEmail = (email: string) => {
+      navigator.clipboard.writeText(email);
+      toast.success("E-mail copiado!");
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1 w-full">
+            <SearchInput 
+              placeholder="Buscar por nome, email ou telefone..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-9"
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl border overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+          <ScrollArea className="h-[400px] w-full relative">
+            <Table>
+              <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-20 shadow-sm">
+                <TableRow className="hover:bg-transparent border-b border-muted-foreground/10">
+                  <TableHead 
+                    className="cursor-pointer select-none hover:text-primary transition-colors group"
+                    onClick={() => toggleSort('nome')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Nome
+                      {sortConfig?.field === 'nome' ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="p-0 border-l border-muted/20">
+                    <MultiSelectFilter 
+                      label="Setor"
+                      options={allSectors}
+                      selectedValues={selectedSectors}
+                      onSelect={setSelectedSectors}
+                    />
+                  </TableHead>
+                  <TableHead className="w-40 text-[10px] uppercase font-bold text-muted-foreground tracking-widest">Contato</TableHead>
+                  {!hideCompanyColumn && (
+                    <TableHead className="p-0 border-l border-muted/20">
+                      <MultiSelectFilter 
+                        label="Empresa"
+                        options={companyOptions}
+                        selectedValues={selectedCompanies}
+                        onSelect={setSelectedCompanies}
+                      />
+                    </TableHead>
+                  )}
+                  <TableHead className="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAndSorted.length > 0 ? (
+                  filteredAndSorted.map((contact) => (
+                    <TableRow key={contact.id_contato} className="hover:bg-muted/30 group">
+                      <TableCell className="font-bold text-sm">{contact.nome}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[9px] uppercase font-medium bg-muted/40 border-muted-foreground/10">
+                          {contact.setor || "OUTRO"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="space-y-1">
+                        {contact.telefone && (
+                          <div className="flex items-center gap-1.5 group/phone">
+                            <div className="p-1 rounded bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30">
+                              <Phone className="w-2.5 h-2.5" />
+                            </div>
+                            <span className="text-[11px] font-mono text-muted-foreground cursor-pointer hover:text-emerald-600 transition-colors" onClick={() => window.open(`https://wa.me/55${contact.telefone?.replace(/\D/g, '')}`, '_blank')}>
+                              {contact.telefone}
+                            </span>
+                          </div>
+                        )}
+                        {contact.email && (
+                          <div className="flex items-center gap-1.5 group/email">
+                            <div className="p-1 rounded bg-blue-50 text-blue-600 dark:bg-blue-950/30">
+                              <Mail className="w-2.5 h-2.5" />
+                            </div>
+                            <span className="text-[11px] text-muted-foreground truncate max-w-[120px] cursor-pointer hover:text-blue-600 transition-colors" onClick={() => handleCopyEmail(contact.email!)}>
+                              {contact.email}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                      {!hideCompanyColumn && (
+                        <TableCell className="text-xs font-semibold text-primary/80">
+                          {allCompanies.find(e => e.id_empresa === contact.id_empresa)?.nome || "—"}
+                        </TableCell>
+                      )}
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreVertical className="w-4 h-4" /></Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => onOpenEdit(contact)}><Pencil className="w-4 h-4 mr-2" />Editar</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => onOpenDelete(contact.id_contato)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground italic text-sm">
+                      Nenhum contato encontrado.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
+        </div>
+      </div>
+    );
+  };
+
+  const StudentsList = ({ 
+    items, 
+    onSearchChange 
+  }: { 
+    items: any[], 
+    onSearchChange?: (val: string) => void 
+  }) => {
+    const [searchTerm, setSearchTerm] = useState("");
+    const [sortConfig, setSortConfig] = useState<{ field: string; direction: 'asc' | 'desc' } | null>({
+      field: 'nome',
+      direction: 'asc'
+    });
+
+    const toggleSort = (field: string) => {
+      if (sortConfig?.field === field) {
+        setSortConfig({ field, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+      } else {
+        setSortConfig({ field, direction: 'asc' });
+      }
+    };
+
+    const filteredAndSorted = useMemo(() => {
+      let res = [...items];
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        res = res.filter(a => a.nome.toLowerCase().includes(q) || (a.cpf && a.cpf.includes(q)));
+      }
+      if (sortConfig) {
+        res.sort((a, b) => {
+          const aVal = (a[sortConfig.field] || "").toString();
+          const bVal = (b[sortConfig.field] || "").toString();
+          return sortConfig.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        });
+      }
+      return res;
+    }, [items, searchTerm, sortConfig]);
+
+    const formatCPF = (cpf: string) => {
+      if (!cpf) return "—";
+      const cleaned = cpf.replace(/\D/g, "");
+      return cleaned.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="relative">
+          <SearchInput
+            placeholder="Pesquisar aluno nesta empresa..."
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              if (onSearchChange) onSearchChange(e.target.value);
+            }}
+            className="bg-muted/30 border-none h-10 text-xs px-10"
+          />
+        </div>
+
+        <div className="rounded-xl border overflow-hidden bg-background border-muted-foreground/10 shadow-sm">
+          <ScrollArea className="h-[400px] w-full">
+            <Table>
+              <TableHeader className="sticky top-0 bg-muted/95 backdrop-blur-sm z-10 shadow-sm">
+                <TableRow className="hover:bg-transparent border-b">
+                  <TableHead 
+                    className="cursor-pointer select-none hover:text-primary transition-colors group"
+                    onClick={() => toggleSort('nome')}
+                  >
+                    <div className="flex items-center gap-1 uppercase text-[10px] font-bold tracking-widest">
+                      Nome Aluno
+                      {sortConfig?.field === 'nome' ? (
+                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead className="uppercase text-[10px] font-bold tracking-widest">Cargo</TableHead>
+                  <TableHead className="uppercase text-[10px] font-bold tracking-widest w-36">CPF</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAndSorted.length > 0 ? (
+                  filteredAndSorted.map((aluno) => (
+                    <TableRow key={aluno.id_aluno || aluno.id_colaborador} className="hover:bg-muted/30 group">
+                      <TableCell className="font-semibold text-sm group-hover:text-primary transition-colors">
+                        {aluno.nome}
+                      </TableCell>
+                      <TableCell>
+                         <Badge variant="outline" className="text-[10px] font-medium opacity-70 border-none px-0">
+                           {aluno.cargo || "Não Inf."}
+                         </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+                        {formatCPF(aluno.cpf)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-20 text-muted-foreground italic text-sm">
+                      Nenhum aluno encontrado para esta busca.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        </div>
+      </div>
+    );
+  };
+
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-8">
@@ -754,217 +1346,49 @@ export function Empresas() {
 
       {/* ── Empresas Cadastradas ───────────────────────────────────────────────── */}
       <div className="space-y-4">
-        <h2 className="text-2xl font-semibold text-foreground">Empresas Cadastradas</h2>
-        <Card className="p-4">
-          <SearchInput placeholder="Buscar empresa por nome ou CNPJ..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-        </Card>
-        <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>CNPJ</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Matriz Vinculada</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEmpresas.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      Não há empresas filiais ou independentes cadastradas.
-                    </TableCell>
-                  </TableRow>
-                ) : filteredEmpresas.map((company) => (
-                  <TableRow
-                    key={company.id_empresa}
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => openView(company)}
-                  >
-                    <TableCell className="font-medium">{company.nome}</TableCell>
-                    <TableCell className="text-muted-foreground">{company.cnpj}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {company.id_matriz ? "Filial" : "Independente"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{company.id_matriz ? matrizesList.find(m => m.id_empresa === company.id_matriz)?.nome || "Sim" : "—"}</TableCell>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(company)}><Pencil className="w-4 h-4 mr-2" />Alterar</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openDelete(company.id_empresa)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
+        <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
+           Cadastros Filiais e Independentes
+        </h2>
+        <CompaniesList 
+          items={filiaisEIndependentes} 
+          allMatrices={matrizesList}
+          onOpenView={openView}
+          onOpenEdit={openEdit}
+          onOpenDelete={openDelete}
+        />
       </div>
 
       {/* ── Matrizes ──────────────────────────────────────────────────────────── */}
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-          <Building2 className="w-5 h-5" /> Matrizes (Sedes)
+          <Building2 className="w-5 h-5 text-primary" /> Matrizes (Sedes)
         </h2>
-        <Card className="p-4">
-          <SearchInput placeholder="Buscar matriz..." value={matrizSearchTerm} onChange={(e) => setMatrizSearchTerm(e.target.value)} />
-        </Card>
-        <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome da Matriz</TableHead>
-                  <TableHead>CNPJ</TableHead>
-                  <TableHead className="text-center">Qtd. Filiais</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredMatrizes.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Nenhuma matriz cadastrada ainda.</TableCell>
-                  </TableRow>
-                ) : filteredMatrizes.map((matriz) => (
-                  <TableRow
-                    key={matriz.id_empresa}
-                    className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => openView(matriz)}
-                  >
-                    <TableCell className="font-medium text-primary">{matriz.nome}</TableCell>
-                    <TableCell>{matriz.cnpj}</TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline">{empresas.filter(e => e.id_matriz === matriz.id_empresa).length}</Badge>
-                    </TableCell>
-                    <TableCell onClick={e => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEdit(matriz)}><Pencil className="w-4 h-4 mr-2" />Alterar</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openDelete(matriz.id_empresa)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
+        <MatrizesList 
+          items={matrizesList}
+          allCompanies={empresas}
+          onOpenView={openView}
+          onOpenEdit={openEdit}
+          onOpenDelete={openDelete}
+        />
       </div>
 
       {/* ── Contatos ──────────────────────────────────────────────────────────── */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-semibold text-foreground flex items-center gap-2">
-            <UserRound className="w-5 h-5" /> Contatos
+            <UserRound className="w-5 h-5 text-primary" /> Contatos Responsáveis
           </h2>
-          <Button variant="outline" className="gap-2" onClick={() => openCreateContact("", false)}>
-            <Plus className="w-4 h-4" /> Adicionar Contato
+          <Button variant="outline" className="gap-2 h-9 text-xs font-bold uppercase tracking-tight" onClick={() => openCreateContact("", false)}>
+            <Plus className="w-4 h-4 text-primary" /> Adicionar Contato
           </Button>
         </div>
-        <Card className="p-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <SearchInput
-                placeholder="Buscar por nome, setor ou email..."
-                value={contactSearch}
-                onChange={(e) => setContactSearch(e.target.value)}
-              />
-            </div>
-            <Select value={contactEmpresaFilter} onValueChange={setContactEmpresaFilter}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Filtrar por empresa" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as empresas</SelectItem>
-                {empresas.map(e => (
-                  <SelectItem key={e.id_empresa} value={e.id_empresa}>{e.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={contactSectorFilter} onValueChange={setContactSectorFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filtrar por setor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os setores</SelectItem>
-                {allSectors.map(s => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </Card>
-        <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Setor</TableHead>
-                  <TableHead>Telefone</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Empresa</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredContacts.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Nenhum contato encontrado.
-                    </TableCell>
-                  </TableRow>
-                ) : filteredContacts.map(contact => (
-                  <TableRow key={contact.id_contato}>
-                    <TableCell className="font-medium">{contact.nome}</TableCell>
-                    <TableCell>
-                      {contact.setor
-                        ? <Badge variant="outline" className="text-xs">{contact.setor}</Badge>
-                        : <span className="text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {contact.telefone
-                        ? <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{contact.telefone}</span>
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {contact.email
-                        ? <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{contact.email}</span>
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {empresas.find(e => e.id_empresa === contact.id_empresa)?.nome || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditContact(contact)}><Pencil className="w-4 h-4 mr-2" />Editar</DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openDeleteContact(contact.id_contato)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Excluir</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
+        <ContatosList 
+          items={contacts}
+          allCompanies={empresas}
+          allSectors={allSectors}
+          onOpenEdit={openEditContact}
+          onOpenDelete={openDeleteContact}
+        />
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -1150,56 +1574,13 @@ export function Empresas() {
               </TabsContent>
 
               <TabsContent value="alunos" className="mt-0 space-y-5 focus-visible:ring-0 outline-none">
-                <div className="flex items-center justify-between sticky top-0 bg-transparent z-10 py-1">
-                  <h4 className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground flex items-center gap-2">
-                    <UserRound className="w-3 h-3" /> Quadro de Alunos
-                  </h4>
-                  <Badge variant="outline" className="h-5 text-[10px] font-black uppercase bg-primary/10 text-primary border-none">
-                    {alunosEmpresa.filter(a => a.nome.toLowerCase().includes(alunosSearch.toLowerCase())).length} Resultados
-                  </Badge>
-                </div>
-
-                <div className="relative">
-                  <SearchInput
-                    placeholder="Pesquisar aluno nesta empresa..."
-                    value={alunosSearch}
-                    onChange={(e) => setAlunosSearch(e.target.value)}
-                    className="bg-muted/30 border-none h-10 text-xs px-10"
-                  />
-                </div>
-
                 {isLoadingAlunosEmpresa ? (
                   <div className="flex flex-col items-center justify-center py-20 gap-3">
                     <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                     <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest animate-pulse">Sincronizando Alunos...</p>
                   </div>
-                ) : alunosEmpresa.length === 0 ? (
-                  <div className="bg-muted/20 border border-dashed border-border rounded-2xl p-12 text-center">
-                    <div className="bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-border/60">
-                      <UserRound className="w-8 h-8 text-muted-foreground/30" />
-                    </div>
-                    <p className="text-sm font-bold text-muted-foreground">Nenhum aluno encontrado.</p>
-                    <p className="text-xs text-muted-foreground/60 mt-1">Os alunos vinculados a esta empresa aparecem aqui automaticamente.</p>
-                  </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {alunosEmpresa
-                      .filter(a => a.nome.toLowerCase().includes(alunosSearch.toLowerCase()) || (a.cpf && a.cpf.includes(alunosSearch)))
-                      .map(aluno => (
-                        <div key={aluno.id_aluno || aluno.id_colaborador} className="bg-background border border-border/80 rounded-xl p-4 hover:shadow-md hover:border-primary/50 transition-all flex items-center gap-4 group">
-                          <div className="bg-primary/10 p-2.5 rounded-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                            <UserRound className="w-4 h-4" />
-                          </div>
-                          <div className="min-w-0 pr-2">
-                            <p className="text-sm font-bold truncate text-foreground group-hover:text-primary transition-colors">{aluno.nome}</p>
-                            <div className="flex flex-col">
-                              <p className="text-[10px] text-muted-foreground uppercase font-black truncate tracking-tighter opacity-70 mb-0.5">{aluno.cargo || "Dono / Gestor"}</p>
-                              <p className="text-[9px] font-mono text-muted-foreground/60">{formatCPF(aluno.cpf)}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
+                  <StudentsList items={alunosEmpresa} />
                 )}
               </TabsContent>
 
@@ -1213,59 +1594,14 @@ export function Empresas() {
                   </Button>
                 </div>
 
-                <div className="relative">
-                  <SearchInput
-                    placeholder="Pesquisar por nome ou setor..."
-                    value={contatosSearch}
-                    onChange={(e) => setContatosSearch(e.target.value)}
-                    className="bg-muted/30 border-none h-10 text-xs px-10"
-                  />
-                </div>
-
-                {selectedEmpresaContacts.length === 0 ? (
-                  <div
-                    className="bg-muted/20 border border-dashed border-border rounded-2xl p-12 text-center group cursor-pointer hover:bg-muted/40 transition-colors"
-                    onClick={() => openCreateContact(selectedEmpresa.id_empresa, true)}
-                  >
-                    <div className="bg-muted/50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-border/60 group-hover:scale-110 transition-transform">
-                      <UserRound className="w-8 h-8 text-muted-foreground/30" />
-                    </div>
-                    <p className="text-sm font-bold text-muted-foreground">O Quadro de Contatos está vazio</p>
-                    <p className="text-xs text-primary font-black uppercase mt-2 group-hover:underline">Adicionar Primeiro Responsável</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {selectedEmpresaContacts
-                      .filter(c => c.nome.toLowerCase().includes(contatosSearch.toLowerCase()) || (c.setor && c.setor.toLowerCase().includes(contatosSearch.toLowerCase())))
-                      .map(c => (
-                        <div key={c.id_contato} className="bg-background border border-border/80 rounded-2xl p-5 flex items-center justify-between group hover:shadow-lg hover:border-primary/40 transition-all duration-300">
-                          <div className="flex items-center gap-5">
-                            <div className="bg-primary/5 p-3 rounded-full group-hover:bg-primary/10 transition-colors">
-                              <Mail className="w-6 h-6 text-primary/60" />
-                            </div>
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <p className="font-black text-sm text-foreground">{c.nome}</p>
-                                <Badge variant="secondary" className="h-4 text-[9px] font-black uppercase items-center px-1.5">{c.setor || "Diretoria"}</Badge>
-                              </div>
-                              <div className="flex items-center gap-5 mt-1.5">
-                                {c.telefone && <p className="text-xs text-muted-foreground font-medium flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary/40" /> {c.telefone}</p>}
-                                {c.email && <p className="text-xs text-primary/70 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"><Mail className="w-3.5 h-3.5" /> {c.email}</p>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity translate-x-2 group-hover:translate-x-0">
-                            <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary" onClick={() => openEditContact(c)}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => openDeleteContact(c.id_contato)}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
+                <ContatosList 
+                  items={selectedEmpresaContacts}
+                  allCompanies={empresas}
+                  allSectors={allSectors}
+                  onOpenEdit={openEditContact}
+                  onOpenDelete={openDeleteContact}
+                  hideCompanyColumn={true}
+                />
               </TabsContent>
             </div>
           </Tabs>
