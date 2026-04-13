@@ -92,9 +92,10 @@ Deno.serve(async (req) => {
 
       if (method === "POST") {
         const body = await req.json();
-        const { id_modulo, titulo, ativo, data_abertura, data_fechamento } = body;
+        const { id_modulo, titulo, ativo, data_abertura, data_fechamento, perguntas } = body;
         
-        const { data, error } = await supabase.from("teste_conhecimento").upsert({
+        // 1. Upsert Test
+        const { data: test, error: tErr } = await supabase.from("teste_conhecimento").upsert({
           id_modulo,
           titulo: titulo || "Teste de Conhecimento",
           ativo: ativo !== undefined ? ativo : true,
@@ -103,8 +104,72 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString()
         }, { onConflict: "id_modulo" }).select().single();
 
-        if (error) throw error;
-        return new Response(JSON.stringify(data), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (tErr) throw tErr;
+        const id_teste = test.id_teste;
+
+        // 2. Process Questions and Alternatives if provided
+        if (perguntas && Array.isArray(perguntas)) {
+           // Get current questions to handle deletions if necessary
+           const incomingPergIds = perguntas.map(p => p.id_pergunta).filter(id => id && !String(id).startsWith("new-"));
+           
+           // Optional: Delete orphaned questions (Careful with existing answers)
+           if (incomingPergIds.length > 0) {
+             await supabase.from("teste_pergunta").delete().eq("id_teste", id_teste).not("id_pergunta", "in", incomingPergIds);
+           }
+
+           for (const p of perguntas) {
+             const isNewPerg = !p.id_pergunta || String(p.id_pergunta).startsWith("new-");
+             const pergPayload = {
+               id_teste,
+               enunciado: p.enunciado,
+               ordem: p.ordem,
+               valor_nota: p.valor_nota || 1.0
+             };
+
+             let pergunData;
+             if (isNewPerg) {
+               const { data } = await supabase.from("teste_pergunta").insert(pergPayload).select().single();
+               pergunData = data;
+             } else {
+               const { data } = await supabase.from("teste_pergunta").update(pergPayload).eq("id_pergunta", p.id_pergunta).select().single();
+               pergunData = data;
+             }
+
+             if (pergunData && p.alternativas && Array.isArray(p.alternativas)) {
+               const id_pergunta = pergunData.id_pergunta;
+               const incomingAltIds = p.alternativas.map(a => a.id_alternativa).filter(id => id && !String(id).startsWith("new-"));
+               
+               if (incomingAltIds.length > 0) {
+                 await supabase.from("teste_alternativa").delete().eq("id_pergunta", id_pergunta).not("id_alternativa", "in", incomingAltIds);
+               }
+
+               const altInserts = p.alternativas.map(a => ({
+                 id_pergunta,
+                 texto: a.texto,
+                 is_correta: a.is_correta,
+                 ordem: a.ordem,
+                 ...( (!a.id_alternativa || String(a.id_alternativa).startsWith("new-")) ? {} : { id_alternativa: a.id_alternativa } )
+               }));
+
+               await supabase.from("teste_alternativa").upsert(altInserts, { onConflict: "id_alternativa" });
+             }
+           }
+        }
+
+        // 3. Return Full Test Object (including the questions/alternatives just saved)
+        const { data: fullTest, error: fErr } = await supabase.from("teste_conhecimento")
+          .select(`
+            id_teste, id_modulo, titulo, ativo, motivo_inatividade, data_abertura, data_fechamento,
+            perguntas:teste_pergunta (
+              id_pergunta, enunciado, ordem, valor_nota,
+              alternativas:teste_alternativa (id_alternativa, texto, is_correta, ordem)
+            )
+          `)
+          .eq("id_teste", id_teste)
+          .single();
+
+        if (fErr) throw fErr;
+        return new Response(JSON.stringify(fullTest), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
       if (method === "PATCH") {
@@ -116,6 +181,23 @@ Deno.serve(async (req) => {
           .select().single();
          if (error) throw error;
          return new Response(JSON.stringify(data), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (method === "DELETE") {
+        const idTeste = url.searchParams.get("id_teste");
+        if (!idTeste) throw new Error("id_teste required");
+
+        const { data: responses } = await supabase.from("teste_resposta_aluno").select("id_resposta").eq("id_teste", idTeste);
+        if (responses && responses.length > 0) {
+          const respIds = responses.map(r => r.id_resposta);
+          await supabase.from("teste_resposta_detalhe").delete().in("id_resposta", respIds);
+          await supabase.from("teste_resposta_aluno").delete().eq("id_teste", idTeste);
+        }
+        
+        const { error } = await supabase.from("teste_conhecimento").delete().eq("id_teste", idTeste);
+        if (error) throw error;
+
+        return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
 
@@ -475,9 +557,14 @@ Deno.serve(async (req) => {
       // Sync Modules & Aulas (Non-destructive UPSERT to preserve tests/questions)
       if (modules && Array.isArray(modules)) {
         const incomingModIds = modules.map(m => m.id_modulo).filter(Boolean);
-        
+
         // 1. Delete modules not in the incoming list
-        await supabase.from('modulo').delete().eq('id_treinamento', id).not('id_modulo', 'in', `(${incomingModIds.join(',') || '00000000-0000-0000-0000-000000000000'})`);
+        const { error: delError } = await supabase.from('modulo')
+          .delete()
+          .eq('id_treinamento', id)
+          .not('id_modulo', 'in', incomingModIds.length > 0 ? incomingModIds : ['00000000-0000-0000-0000-000000000000']);
+        
+        if (delError) console.error("Error deleting orphaned modules:", delError);
 
         for (const [index, mod] of modules.entries()) {
           const modPayload = {

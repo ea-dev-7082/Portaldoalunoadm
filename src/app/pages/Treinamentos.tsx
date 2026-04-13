@@ -497,6 +497,7 @@ export function Treinamentos() {
     id: string;
     name: string;
     aulas: ModuloParte[];
+    teste?: any;
   }
   
   const emptyModule = (n: number): TrainingModule => ({
@@ -863,6 +864,13 @@ export function Treinamentos() {
         { method: "DELETE", headers }
       );
       if (res.ok) {
+        // Find the module that owned this test and clear its test reference locally
+        if (testeData?.id_modulo) {
+            setTrainingModules(prev => prev.map(mod => {
+                const isMatch = mod.id === testeData.id_modulo || (mod as any).id_modulo === testeData.id_modulo;
+                return isMatch ? { ...mod, teste: null } : mod;
+            }));
+        }
         setTesteData(null);
         setTestePerguntas([]);
         setConfirmDeleteTesteOpen(false);
@@ -1886,7 +1894,7 @@ export function Treinamentos() {
       <Dialog open={addTrainingOpen} onOpenChange={(open) => {
         if (!open) handleCancelTraining();
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{editingTrainingId ? 'Editar Treinamento' : 'Adicionar Novo Treinamento'}</DialogTitle>
             <DialogDescription>
@@ -2174,7 +2182,7 @@ export function Treinamentos() {
                       </h3>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                       <div className="space-y-2">
                         <Label className="text-xs uppercase font-bold tracking-wider opacity-60">1. Filtrar por Empresa</Label>
                         <div className="space-y-2">
@@ -2249,9 +2257,9 @@ export function Treinamentos() {
                       <Table>
                         <TableHeader className="sticky top-0 bg-background z-10">
                           <TableRow>
-                            <TableHead>Nome</TableHead>
-                            <TableHead>Cargo / Empresa</TableHead>
-                            <TableHead className="w-[50px]"></TableHead>
+                            <TableHead className="w-[40%]">Nome</TableHead>
+                            <TableHead className="w-[50%]">Cargo / Empresa</TableHead>
+                            <TableHead className="w-[10%] text-right pr-4"></TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2261,14 +2269,14 @@ export function Treinamentos() {
                               return (
                                 <TableRow key={studentId}>
                                   <TableCell className="font-medium">{student?.nome}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs">
+                                  <TableCell className="text-muted-foreground text-xs max-w-[400px] truncate" title={`${student?.cargo} em ${student?.empresa}`}>
                                     {student?.cargo} em {student?.empresa}
                                   </TableCell>
-                                  <TableCell>
+                                  <TableCell className="text-right pr-2">
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-8 w-8 text-destructive hover:bg-red-50"
+                                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
                                       onClick={() => {
                                         setTrainingData({
                                           ...trainingData,
@@ -2309,8 +2317,8 @@ export function Treinamentos() {
                       <Table>
                         <TableHeader className="sticky top-0 bg-background z-10">
                           <TableRow>
-                            <TableHead>Nome da Empresa</TableHead>
-                            <TableHead>CNPJ</TableHead>
+                            <TableHead className="w-[60%]">Nome da Empresa</TableHead>
+                            <TableHead className="w-[40%]">CNPJ</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -2319,7 +2327,7 @@ export function Treinamentos() {
                               const company = allCompanies.find((c: any) => c.nome === empName);
                               return (
                                 <TableRow key={empName}>
-                                  <TableCell className="font-medium">{empName}</TableCell>
+                                  <TableCell className="font-medium max-w-[600px] truncate" title={empName}>{empName}</TableCell>
                                   <TableCell className="text-muted-foreground text-xs">{company?.cnpj || "N/A"}</TableCell>
                                 </TableRow>
                               );
