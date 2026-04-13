@@ -1894,7 +1894,7 @@ export function Treinamentos() {
       <Dialog open={addTrainingOpen} onOpenChange={(open) => {
         if (!open) handleCancelTraining();
       }}>
-        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogContent className="w-[80vw] sm:max-w-[80vw] lg:max-w-[80vw] max-h-[90vh] overflow-y-auto overflow-x-hidden" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{editingTrainingId ? 'Editar Treinamento' : 'Adicionar Novo Treinamento'}</DialogTitle>
             <DialogDescription>
@@ -2174,173 +2174,179 @@ export function Treinamentos() {
                 </TabsContent>
 
                 <TabsContent value="participantes" className="space-y-8">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-semibold flex items-center gap-2">
-                        <Users className="w-5 h-5 text-blue-600" />
-                        Alunos ({trainingData.students.length})
-                      </h3>
-                    </div>
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 items-start">
+                    {/* COLUNA ESQUERDA: ALUNOS */}
+                    <div className="xl:col-span-7 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                          <Users className="w-5 h-5 text-blue-600" />
+                          Alunos ({trainingData.students.length})
+                        </h3>
+                      </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                      <div className="space-y-2">
-                        <Label className="text-xs uppercase font-bold tracking-wider opacity-60">1. Filtrar por Empresa</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start bg-muted/20 p-4 rounded-xl border border-muted-foreground/10">
                         <div className="space-y-2">
-                          <SearchInput 
-                            placeholder="Pesquisar por nome da empresa..." 
-                            value={studentModalCompanySearch} 
-                            onChange={(e) => setStudentModalCompanySearch(e.target.value)}
-                            className="h-9"
-                          />
-                          <Select value={studentModalCompanyFilter} onValueChange={setStudentModalCompanyFilter}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Todas as empresas" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="todas">Todas as empresas</SelectItem>
-                              {allCompanies
-                                .filter(c => c.nome.toLowerCase().includes(studentModalCompanySearch.toLowerCase()))
-                                .map(emp => (
-                                  <SelectItem key={emp.id} value={emp.nome}>{emp.nome}</SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
+                          <Label className="text-[10px] uppercase font-bold tracking-wider opacity-60">1. Localizar Empresa</Label>
+                          <div className="space-y-2">
+                            <SearchInput 
+                              placeholder="Filtre as empresas..." 
+                              value={studentModalCompanySearch} 
+                              onChange={(e) => setStudentModalCompanySearch(e.target.value)}
+                              className="h-9"
+                            />
+                            <Select value={studentModalCompanyFilter} onValueChange={setStudentModalCompanyFilter}>
+                              <SelectTrigger className="h-9 bg-background">
+                                <SelectValue placeholder="Todas as empresas" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="todas">Todas as empresas</SelectItem>
+                                {allCompanies
+                                  .filter(c => c.nome.toLowerCase().includes(studentModalCompanySearch.toLowerCase()))
+                                  .map(emp => (
+                                    <SelectItem key={emp.id} value={emp.nome}>{emp.nome}</SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase font-bold tracking-wider opacity-60">2. Adicionar Novo Aluno</Label>
+                          <div className="space-y-2">
+                            <SearchInput 
+                              placeholder="Nome do aluno..." 
+                              value={studentModalStudentSearch} 
+                              onChange={(e) => setStudentModalStudentSearch(e.target.value)}
+                              className="h-9"
+                            />
+                            <Select 
+                              value={studentModalCurrentSelect}
+                              onValueChange={(val) => {
+                                if (!trainingData.students.includes(val)) {
+                                  setTrainingData({
+                                    ...trainingData,
+                                    students: [...trainingData.students, val]
+                                  });
+                                  setIsTrainingDirty(true);
+                                  setStudentModalCurrentSelect("");
+                                  setStudentModalStudentSearch("");
+                                  toast.success("Aluno adicionado!");
+                                } else {
+                                  toast.warning("Aluno já inscrito.");
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-9 bg-background">
+                                <SelectValue placeholder="Selecione para adicionar..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allStudents
+                                  .filter(s => (studentModalCompanyFilter === "todas" || s.empresa === studentModalCompanyFilter))
+                                  .filter(s => s.nome.toLowerCase().includes(studentModalStudentSearch.toLowerCase()))
+                                  .filter(s => !trainingData.students.includes(s.id))
+                                  .sort((a, b) => a.nome.localeCompare(b.nome))
+                                  .map(s => (
+                                    <SelectItem key={s.id} value={s.id}>
+                                      {s.nome} ({s.cargo})
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs uppercase font-bold tracking-wider opacity-60">2. Adicionar Aluno</Label>
-                        <div className="space-y-2">
-                          <SearchInput 
-                            placeholder="Nome do aluno..." 
-                            value={studentModalStudentSearch} 
-                            onChange={(e) => setStudentModalStudentSearch(e.target.value)}
-                            className="h-9"
-                          />
-                          <Select 
-                            value={studentModalCurrentSelect}
-                            onValueChange={(val) => {
-                              if (!trainingData.students.includes(val)) {
-                                setTrainingData({
-                                  ...trainingData,
-                                  students: [...trainingData.students, val]
-                                });
-                                setIsTrainingDirty(true);
-                                setStudentModalCurrentSelect(""); // Reset select after adding
-                                setStudentModalStudentSearch(""); // Clear search after adding
-                                toast.success("Aluno adicionado à lista!");
-                              } else {
-                                toast.warning("Este aluno já está na lista.");
-                              }
-                            }}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Busque um aluno..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {allStudents
-                                .filter(s => (studentModalCompanyFilter === "todas" || s.empresa === studentModalCompanyFilter))
-                                .filter(s => s.nome.toLowerCase().includes(studentModalStudentSearch.toLowerCase()))
-                                .filter(s => !trainingData.students.includes(s.id))
-                                .sort((a, b) => a.nome.localeCompare(b.nome))
-                                .map(s => (
-                                  <SelectItem key={s.id} value={s.id}>
-                                    {s.nome} - {s.cargo} ({s.empresa})
-                                  </SelectItem>
-                                ))}
-                            </SelectContent>
-                          </Select>
+
+                      <div className="border rounded-xl overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+                        <div className="max-h-[300px] overflow-auto">
+                          <Table>
+                            <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+                              <TableRow>
+                                <TableHead className="w-[40%]">Nome</TableHead>
+                                <TableHead className="w-[50%]">Cargo / Empresa</TableHead>
+                                <TableHead className="w-[10%] text-right pr-4"></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {trainingData.students.length > 0 ? (
+                                trainingData.students.map(studentId => {
+                                  const student = allStudents.find(s => s.id === studentId);
+                                  return (
+                                    <TableRow key={studentId} className="group hover:bg-muted/30">
+                                      <TableCell className="font-medium py-3">{student?.nome}</TableCell>
+                                      <TableCell className="text-muted-foreground text-xs max-w-[500px] truncate" title={`${student?.cargo} em ${student?.empresa}`}>
+                                        {student?.cargo} em <span className="font-semibold">{student?.empresa}</span>
+                                      </TableCell>
+                                      <TableCell className="text-right pr-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-destructive opacity-20 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                                          onClick={() => {
+                                            setTrainingData({
+                                              ...trainingData,
+                                              students: trainingData.students.filter(id => id !== studentId)
+                                            });
+                                            setIsTrainingDirty(true);
+                                          }}
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </Button>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })
+                              ) : (
+                                <TableRow>
+                                  <TableCell colSpan={3} className="text-center py-12 text-muted-foreground text-sm italic">
+                                    Nenhum aluno matriculado.
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
                         </div>
                       </div>
                     </div>
 
-                    <div className="border rounded-md max-h-[250px] overflow-auto">
-                      <Table>
-                        <TableHeader className="sticky top-0 bg-background z-10">
-                          <TableRow>
-                            <TableHead className="w-[40%]">Nome</TableHead>
-                            <TableHead className="w-[50%]">Cargo / Empresa</TableHead>
-                            <TableHead className="w-[10%] text-right pr-4"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {trainingData.students.length > 0 ? (
-                            trainingData.students.map(studentId => {
-                              const student = allStudents.find(s => s.id === studentId);
-                              return (
-                                <TableRow key={studentId}>
-                                  <TableCell className="font-medium">{student?.nome}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs max-w-[400px] truncate" title={`${student?.cargo} em ${student?.empresa}`}>
-                                    {student?.cargo} em {student?.empresa}
-                                  </TableCell>
-                                  <TableCell className="text-right pr-2">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                      onClick={() => {
-                                        setTrainingData({
-                                          ...trainingData,
-                                          students: trainingData.students.filter(id => id !== studentId)
-                                        });
-                                        setIsTrainingDirty(true);
-                                      }}
-                                    >
-                                      <X className="w-4 h-4" />
-                                    </Button>
+                    {/* COLUNA DIREITA: EMPRESAS PARTICIPANTES */}
+                    <div className="xl:col-span-5 space-y-6 lg:border-l lg:pl-10 lg:border-muted-foreground/10">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                          <Building2 className="w-5 h-5 text-blue-600" />
+                          Empresas Participantes
+                        </h3>
+                      </div>
+
+                      <div className="border rounded-xl overflow-hidden shadow-sm bg-background border-muted-foreground/20">
+                        <div className="max-h-[415px] overflow-auto">
+                          <Table>
+                            <TableHeader className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
+                              <TableRow>
+                                <TableHead className="w-[60%]">Nome da Empresa</TableHead>
+                                <TableHead className="w-[40%] text-right pr-6">CNPJ</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).length > 0 ? (
+                                Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).map(empName => {
+                                  const company = allCompanies.find((c: any) => c.nome === empName);
+                                  return (
+                                    <TableRow key={empName} className="hover:bg-muted/30">
+                                      <TableCell className="font-medium py-3 max-w-[800px] truncate" title={empName}>{empName}</TableCell>
+                                      <TableCell className="text-muted-foreground text-xs text-right pr-6 font-mono">{company?.cnpj || "N/A"}</TableCell>
+                                    </TableRow>
+                                  );
+                                })
+                              ) : (
+                                <TableRow>
+                                  <TableCell colSpan={2} className="text-center py-12 text-muted-foreground text-sm italic">
+                                    Nenhuma empresa detectada.
                                   </TableCell>
                                 </TableRow>
-                              );
-                            })
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={3} className="text-center py-4 text-muted-foreground text-sm italic">
-                                Nenhum aluno matriculado.
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-
-                  <div className="border-t pt-8"></div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-semibold flex items-center gap-2">
-                        <Building2 className="w-5 h-5 text-blue-600" />
-                        Empresas Participantes
-                      </h3>
-                    </div>
-
-                    <div className="border rounded-md max-h-[250px] overflow-auto">
-                      <Table>
-                        <TableHeader className="sticky top-0 bg-background z-10">
-                          <TableRow>
-                            <TableHead className="w-[60%]">Nome da Empresa</TableHead>
-                            <TableHead className="w-[40%]">CNPJ</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).length > 0 ? (
-                            Array.from(new Set(trainingData.students.map(sid => allStudents.find(s => s.id === sid)?.empresa).filter(Boolean))).map(empName => {
-                              const company = allCompanies.find((c: any) => c.nome === empName);
-                              return (
-                                <TableRow key={empName}>
-                                  <TableCell className="font-medium max-w-[600px] truncate" title={empName}>{empName}</TableCell>
-                                  <TableCell className="text-muted-foreground text-xs">{company?.cnpj || "N/A"}</TableCell>
-                                </TableRow>
-                              );
-                            })
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={2} className="text-center py-4 text-muted-foreground text-sm italic">
-                                Nenhuma empresa identificada através dos alunos.
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </TabsContent>
